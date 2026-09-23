@@ -1,43 +1,272 @@
-AUDITOR agent for GSMH.
-Rigorously attack a specific derivation provided in the prompt.
+name: GSMH Autonomous Research
 
-        *   Mathematical contradictions.
-        *   Missing constraints.
-        *   Conservation failures.
-        *   Ghost/Tachyon/Gradient instabilities.
-        *   Acausality.
-        *   Bad GR limits.
-        *   Solar-System conflicts.
-        *   Memory effect analysis (genuine hereditary vs. ordinary retarded/tail effects).
+on:
+  workflow_dispatch:
 
-        *   The user provided the *thought process* and *outline* of a "DERIVATION agent," but not a fully completed mathematical proof.
-        *   The "DERIVATION" provided is actually a *plan* or a *meta-derivation*. The agent proposed a model: $S = \int d^4x \sqrt{-g} \left[ \frac{M_{pl}^2}{2} R - \frac{1}{2}(\partial \phi)^2 - V(\phi) + \alpha(\phi) \mathcal{G} \right] + S_m$, where $\mathcal{G}$ is the Gauss-Bonnet invariant.
-        *   The "DERIVATION agent" claimed this would be rigorous and satisfy the requirements.
+permissions:
+  contents: write
 
-    *   *Model Proposal:* Scalar-Gauss-Bonnet (sGB) gravity.
-    *   *Claimed "Holographic" (H) aspect:* The agent justifies "H" by saying $\alpha(\phi)$ represents holographic corrections or is a holographic dark energy model.
-    *   *Claimed Stability:* "Gauss-Bonnet + Scalar is known to be second-order, so no Ostrogradsky ghosts."
-    *   *Claimed GR Limit:* "Weak field: $\alpha \to 0$ or $\phi \to \phi_0$."
-    *   *Missing Detail:* The derivation is an *outline*, not a full derivation. It lacks the actual explicit field equations, the actual perturbation analysis, the actual causality proofs, and the actual memory effect calculation.
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
 
-    *   **Attack 1: The "Holographic" Label (Semantic/Conceptual Failure).**
-        The agent simply slapped a label "Holographic" on a standard sGB (Scalar-Gauss-Bonnet) theory. There is no mathematical mechanism linking the action to a holographic boundary or an entropy bound. It's just "gravity + scalar + GB." This is a failure of definition.
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-    *   **Attack 2: Ghost/Tachyon Stability (The "Known to be second-order" fallacy).**
-        While the sGB equations are second-order, stability is *not* guaranteed. For certain $\alpha(\phi)$ and $V(\phi)$, the scalar field can become tachyonic ($m^2 < 0$) or the kinetic term can change sign (ghost). Furthermore, in sGB, there are regions of parameter space where the theory becomes *non-hyperbolic* (the equations change from hyperbolic to elliptic), leading to a total breakdown of Cauchy evolution.
+    steps:
+      - name: Checkout GSMH
+        uses: actions/checkout@v4
 
-    *   **Attack 3: The GR Limit & Solar System (The "Screening" problem).**
-        The agent says $\alpha \to 0$ is the limit. But if $\alpha(\phi)$ is a function of $\phi$, and $\phi$ is dynamic, the theory must explain why the scalar doesn't mediate a fifth force. Standard sGB is notoriously difficult to reconcile with Solar System tests (Cassini mission) unless a screening mechanism (like Chameleon or Vainshtein) is explicitly derived. The agent ignored this.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-    *   **Attack 4: Causality and Superluminality.**
-        sGB gravity often exhibits superluminal propagation of perturbations ($c_s > 1$) depending on the background curvature and the coupling $\alpha'$. This violates the spirit of causality and can lead to closed timelike curves at the perturbative level.
+      - name: Install requests
+        run: pip install requests
 
-    *   **Attack 5: The "Memory Effect" (Crucial prompt requirement).**
-        The agent didn't actually derive the memory effect. However, in sGB, the "memory" would likely be a result of the scalar field's evolution. I must point out that if the scalar field just settles to a new vacuum, it's a "tail" effect (retarded) rather than a true holographic memory effect.
+      - name: Run autonomous GSMH research
+        run: |
+          mkdir -p agents/reports
 
-    *   **Attack 6: Mathematical Contradiction in the "Holographic" Constraint.**
-        The agent mentions both a GB term AND a holographic dark energy constraint ($\rho_\Lambda \propto L^{-2}$). These are two different theoretical frameworks. One is a local action modification; the other is a global IR cutoff. Combining them without a unifying framework is mathematically arbitrary and physically inconsistent.
+          python - <<'PY'
+          import os
+          import json
+          import time
+          import requests
+          from pathlib import Path
 
-    *   Use the "AUDITOR" persona.
-    *   Be clinical, rigorous, and aggressive.
-    *   Organize by the specific failure categories requested (Causality, Ghosts, GR Limit, etc.).
+          KEY = os.environ["GEMINI_API_KEY"]
+          URL = "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent"
+
+          def ask(prompt):
+              for attempt in range(5):
+                  try:
+                      r = requests.post(
+                          URL,
+                          headers={
+                              "x-goog-api-key": KEY,
+                              "Content-Type": "application/json"
+                          },
+                          json={
+                              "contents": [
+                                  {"parts": [{"text": prompt}]}
+                              ]
+                          },
+                          timeout=(30, 900)
+                      )
+
+                      if r.status_code == 200:
+                          data = r.json()
+                          return data["candidates"][0]["content"]["parts"][0]["text"]
+
+                      if r.status_code in (429, 500, 502, 503, 504):
+                          time.sleep(10 * (attempt + 1))
+                          continue
+
+                      raise RuntimeError(r.text)
+
+                  except Exception:
+                      if attempt == 4:
+                          raise
+                      time.sleep(10 * (attempt + 1))
+
+          canonical = Path("memory/CANONICAL_MODEL.md").read_text()
+          problems = Path("memory/OPEN_PROBLEMS.md").read_text()
+
+          previous = "No previous research cycle exists."
+
+          for cycle in range(1, 21):
+
+              print(f"=== GSMH CYCLE {cycle} ===")
+
+              derivation = ask(f"""
+          You are the DERIVATION AGENT for GSMH.
+
+          GSMH means exactly:
+
+          Gravity Spacetime Memory Hypothesis.
+
+          GSMH proposes that gravitational response may depend on
+          present matter-energy AND a mathematically defined history
+          of spacetime curvature or matter distribution.
+
+          Do NOT reinterpret GSMH as:
+          - holographic gravity
+          - scalar-Gauss-Bonnet gravity
+          - generic scalar-tensor gravity
+          - dark matter
+          - an unrelated modified-gravity theory
+
+          If a proposed model cannot represent genuine hereditary
+          gravitational memory, reject it.
+
+          Work from first principles.
+
+          Required:
+
+          1. Define the physical fields and parameters.
+          2. Construct an action or mathematically equivalent equations.
+          3. Derive the equations of motion explicitly.
+          4. Establish diffeomorphism covariance.
+          5. Establish conservation constraints.
+          6. Determine propagating degrees of freedom.
+          7. Test ghosts.
+          8. Test tachyonic instabilities.
+          9. Test gradient instabilities.
+          10. Test hyperbolicity and causality.
+          11. Distinguish genuine hereditary memory from ordinary
+              retarded propagation and curved-spacetime tail effects.
+          12. Derive the weak-field/Newtonian limit.
+          13. Determine whether the model can modify galactic
+              gravitational dynamics without invisible matter.
+          14. Derive at least one falsifiable observable.
+          15. State every assumption.
+          16. Explicitly identify anything not mathematically proven.
+
+          NEVER claim PROVEN merely because the equations look plausible.
+
+          PREVIOUS CYCLE:
+          {previous}
+
+          CANONICAL MODEL:
+          {canonical}
+
+          OPEN PROBLEMS:
+          {problems}
+          """)
+
+              audit = ask(f"""
+          You are the INDEPENDENT AUDITOR for GSMH.
+
+          Audit the following derivation aggressively.
+
+          GSMH is specifically a history-dependent gravitational
+          response hypothesis.
+
+          Do not replace it with another theory.
+
+          Check:
+
+          - mathematical consistency
+          - covariance
+          - conservation
+          - constraints
+          - degrees of freedom
+          - ghosts
+          - tachyons
+          - gradient instabilities
+          - hyperbolicity
+          - causality
+          - initial-value formulation
+          - GR recovery
+          - Newtonian limit
+          - Solar-System constraints
+          - binary-pulsar constraints
+          - gravitational-wave constraints
+          - galaxy-scale predictions
+          - lensing
+          - cluster observations
+          - persistence timescale
+          - whether the claimed memory is genuinely hereditary
+          - whether it is merely a normal retarded/tail effect
+
+          If the derivation fails, identify the exact equation
+          or assumption responsible.
+
+          DERIVATION:
+          {derivation}
+          """)
+
+              synthesis = ask(f"""
+          You are the SENIOR GSMH RESEARCHER.
+
+          Combine the derivation and audit.
+
+          Preserve GSMH identity.
+
+          Repair the model only when the repair is mathematically
+          justified. Otherwise reject the invalid step.
+
+          Return exactly these sections:
+
+          CANONICAL EQUATIONS
+          ACTION
+          ASSUMPTIONS
+          DERIVATION STATUS
+          CONSERVATION STATUS
+          STABILITY STATUS
+          CAUSALITY STATUS
+          NEWTONIAN LIMIT
+          OBSERVATIONAL PREDICTION
+          STRONGEST FAILURE
+          NEXT MATHEMATICAL PROBLEM
+          FINAL STATUS
+
+          The FINAL STATUS line MUST contain exactly one of:
+
+          PROVEN
+          DERIVED-BUT-UNVERIFIED
+          VIABLE-CANDIDATE
+          FAILED
+          OPEN
+
+          Important:
+          PROVEN is allowed ONLY if the mathematical derivation
+          actually establishes the claimed GSMH mechanism without
+          unresolved contradictions.
+
+          DERIVATION:
+          {derivation}
+
+          AUDIT:
+          {audit}
+          """)
+
+              Path(
+                  f"agents/reports/cycle_{cycle:03d}_derivation.md"
+              ).write_text(derivation)
+
+              Path(
+                  f"agents/reports/cycle_{cycle:03d}_audit.md"
+              ).write_text(audit)
+
+              Path(
+                  f"agents/reports/cycle_{cycle:03d}_synthesis.md"
+              ).write_text(synthesis)
+
+              status_line = ""
+
+              for line in synthesis.splitlines():
+                  if line.strip().startswith("FINAL STATUS"):
+                      status_line = line.strip()
+
+              state = {
+                  "cycle": cycle,
+                  "final_status": status_line,
+                  "previous_cycle_used": cycle > 1
+              }
+
+              Path("agents/state.json").write_text(
+                  json.dumps(state, indent=2)
+              )
+
+              previous = synthesis
+
+              print(f"Cycle {cycle} completed.")
+              print(f"Status: {status_line}")
+
+              if status_line == "FINAL STATUS: PROVEN":
+                  print("GSMH reached PROVEN status.")
+                  break
+
+          PY
+
+      - name: Save research
+        run: |
+          git config user.name "GSMH Research Agent"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agents/reports agents/state.json
+          git diff --cached --quiet || git commit -m "GSMH autonomous research cycles"
+          git push
