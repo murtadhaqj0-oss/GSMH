@@ -1,0 +1,55 @@
+name: GSMH Autonomous Research
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout GSMH
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Check API
+        run: |
+          python - <<'PY'
+          import os, requests
+          key = os.environ["GEMINI_API_KEY"]
+          url = "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent"
+          r = requests.post(
+              url,
+              headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+              json={"contents":[{"parts":[{"text":"Reply with exactly: GSMH API OK"}]}]},
+              timeout=120
+          )
+          r.raise_for_status()
+          print("GSMH API OK")
+          PY
+
+      - name: Run research agents
+        run: |
+          python agents/run_team.py
+
+      - name: Save research reports
+        run: |
+          git config user.name "GSMH Research Agent"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agents/reports agents/state.json || true
+          git diff --cached --quiet || git commit -m "GSMH autonomous research cycle"
+          git push || true
