@@ -1,7 +1,6 @@
-name: GSMH Autonomous Research
+دname: GSMH Autonomous Research
 
-on:
-  workflow_dispatch:
+on: workflow_dispatch
 
 permissions:
   contents: write
