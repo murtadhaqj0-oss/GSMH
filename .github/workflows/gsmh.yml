@@ -1,4 +1,4 @@
-دname: GSMH Autonomous Research
+name: GSMH Autonomous Research
 
 on: workflow_dispatch
 
@@ -35,7 +35,6 @@ jobs:
           import json
           import re
           import time
-          import subprocess
           from pathlib import Path
 
           import requests
@@ -87,15 +86,15 @@ jobs:
           mathematically defined functional of prior spacetime
           curvature and/or prior matter distribution.
 
-          The central proposed physical idea is HEREDITARY GRAVITATIONAL
-          RESPONSE: a previous matter configuration may leave a residual
-          gravitational influence after the source changes, moves,
-          disperses, explodes, or otherwise evolves.
+          The central proposed physical idea is HEREDITARY
+          GRAVITATIONAL RESPONSE: a previous matter configuration may
+          leave a residual gravitational influence after the source
+          changes, moves, disperses, explodes, or otherwise evolves.
 
           The existence, mathematical form, consistency, magnitude and
           observability of this memory are NOT assumed to be proven.
 
-          A schematic target equation is:
+          Target schematic equation:
 
               E_munu[g](x)
               =
@@ -103,7 +102,7 @@ jobs:
               +
               M_munu[g,T_history](x)
 
-          where M_munu represents a causal functional of previous
+          M_munu represents a possible causal functional of previous
           gravitational/matter history.
 
           THIS EQUATION IS ONLY A TARGET REPRESENTATION.
@@ -111,15 +110,15 @@ jobs:
 
           The research must determine:
 
-          1. What mathematical object carries the memory?
+          1. What mathematical object carries memory?
           2. How is memory generated?
           3. What is its causal kernel?
           4. What determines its persistence time?
-          5. Does the memory depend on curvature history?
+          5. Does memory depend on curvature history?
           6. Does it depend on matter history?
-          7. Can the mechanism be derived from a microscopic theory?
+          7. Can it be derived from a microscopic theory?
           8. Is the theory diffeomorphism covariant?
-          9. Are the gravitational constraints consistent?
+          9. Are gravitational constraints consistent?
           10. Is stress-energy conservation consistent?
           11. What propagating degrees of freedom exist?
           12. Are there ghosts?
@@ -132,7 +131,7 @@ jobs:
           19. Can the mechanism affect galaxy rotation curves?
           20. Can it reproduce the baryonic Tully-Fisher relation?
           21. Can it produce gravitational lensing?
-          22. Can it address cluster systems such as the Bullet Cluster?
+          22. Can it address Bullet-Cluster-type systems?
           23. Does it survive Solar-System constraints?
           24. Does it survive binary-pulsar constraints?
           25. Does it survive gravitational-wave constraints?
@@ -187,7 +186,6 @@ jobs:
               last_error = None
 
               for attempt in range(5):
-
                   try:
                       response = requests.post(
                           API_URL,
@@ -197,7 +195,6 @@ jobs:
 
                       if response.status_code == 200:
                           data = response.json()
-
                           candidates = data.get("candidates", [])
 
                           if not candidates:
@@ -225,7 +222,9 @@ jobs:
                               "API returned empty text"
                           )
 
-                      if response.status_code in (429, 500, 502, 503, 504):
+                      if response.status_code in (
+                          429, 500, 502, 503, 504
+                      ):
                           last_error = (
                               f"HTTP {response.status_code}: "
                               f"{response.text[:1000]}"
@@ -249,10 +248,7 @@ jobs:
 
           def save(path, text):
               path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_text(
-                  text,
-                  encoding="utf-8"
-              )
+              path.write_text(text, encoding="utf-8")
 
 
           def extract_status(text):
@@ -347,13 +343,10 @@ jobs:
               Previous repair:
               {previous_repair[-12000:]}
 
-              Your task:
-
-              Determine ONE precise mathematical problem that this cycle
-              must solve.
+              Determine ONE precise mathematical problem that this
+              cycle must solve.
 
               Do not invent a new theory.
-
               Do not redefine GSMH.
 
               Explicitly distinguish:
@@ -407,14 +400,12 @@ jobs:
 
               Perform ACTUAL mathematics.
 
-              Do not merely describe what should be done.
-
               Priority:
 
               1. Derive the origin of the memory response.
               2. Investigate the microscopic CTP/2PI route if relevant.
               3. Investigate a microscopic field q with O=q^2.
-              4. Analyze the susceptibility
+              4. Analyze:
 
                  Pi(k) =
                  integral d^3q/(2*pi)^3
@@ -423,8 +414,8 @@ jobs:
                    ((q^2+m^2)((q+k)^2+m^2))
                  ]
 
-              5. Determine whether such a response can generate a genuine
-                 hereditary gravitational kernel.
+              5. Determine whether such a response can generate a
+                 genuine hereditary gravitational kernel.
               6. Derive a covariant effective equation if justified.
               7. Vary any proposed action explicitly.
               8. Check conservation.
@@ -439,8 +430,8 @@ jobs:
 
               Never introduce an arbitrary scalar and call it memory.
 
-              If an auxiliary field is introduced, prove why its dynamics
-              represent genuine history dependence.
+              If an auxiliary field is introduced, prove why its
+              dynamics represent genuine history dependence.
 
               Separate:
 
@@ -494,7 +485,7 @@ jobs:
               17. lensing
               18. galaxy rotation
               19. Bullet-Cluster-type systems
-              20. whether the proposed memory is merely ordinary
+              20. whether proposed memory is merely ordinary
                   retarded propagation.
 
               For every failure give:
@@ -596,11 +587,10 @@ jobs:
               LEVEL 6 = speculation
 
               Never promote speculation to derivation.
-
               Never promote a proposed equation to a proven equation.
 
-              Never call ordinary retarded propagation genuine GSMH memory
-              without proving the distinction.
+              Never call ordinary retarded propagation genuine GSMH
+              memory without proving the distinction.
 
               Never call a curved-spacetime tail automatically GSMH.
 
@@ -615,8 +605,8 @@ jobs:
               - dark matter
               - another unrelated modified-gravity theory
 
-              Such theories may only appear as comparison or falsification
-              cases.
+              Such theories may only appear as comparison or
+              falsification cases.
 
               Required final structure:
 
@@ -700,7 +690,9 @@ jobs:
                       "MODEL IDENTITY DRIFT DETECTED"
                   )
 
+
               prefix = f"cycle_{cycle:03d}"
+
 
               save(
                   REPORTS / f"{prefix}_foundation.md",
@@ -729,40 +721,51 @@ jobs:
 
 
               state = {
-    "cycle": cycle,
-    "status": accepted_status,
-    "identity_drift": drift,
-    "previous_synthesis": synthesis[-16000:],
-    "previous_audit": audit[-12000:],
-    "previous_repair": repair[-12000:]
-}
+                  "cycle": cycle,
+                  "status": accepted_status,
+                  "identity_drift": drift,
+                  "previous_synthesis": synthesis[-16000:],
+                  "previous_audit": audit[-12000:],
+                  "previous_repair": repair[-12000:]
+              }
 
-STATE_FILE.write_text(
-    json.dumps(state, indent=2),
-    encoding="utf-8"
-)
 
-previous_synthesis = synthesis
-previous_audit = audit
-previous_repair = repair
+              STATE_FILE.write_text(
+                  json.dumps(
+                      state,
+                      indent=2
+                  ),
+                  encoding="utf-8"
+              )
 
-print(f"CYCLE {cycle} COMPLETE | STATUS: {accepted_status}")
 
-if accepted_status == "PROVEN":
-    print("GSMH reached PROVEN status.")
-    break
+              previous_synthesis = synthesis
+              previous_audit = audit
+              previous_repair = repair
 
-canonical_model = read_text(
-    ROOT / "memory" / "CANONICAL_MODEL.md"
-)
 
-open_problems = read_text(
-    ROOT / "memory" / "OPEN_PROBLEMS.md"
-)
+              print(
+                  f"CYCLE {cycle} COMPLETE | "
+                  f"STATUS: {accepted_status}"
+              )
 
-time.sleep(2)
 
-PY
+              if accepted_status == "PROVEN":
+                  print("GSMH reached PROVEN status.")
+                  break
+
+
+              canonical_model = read_text(
+                  ROOT / "memory" / "CANONICAL_MODEL.md"
+              )
+
+              open_problems = read_text(
+                  ROOT / "memory" / "OPEN_PROBLEMS.md"
+              )
+
+              time.sleep(2)
+
+          PY
 
       - name: Save research
         run: |
