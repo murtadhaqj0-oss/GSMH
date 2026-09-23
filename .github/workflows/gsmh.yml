@@ -1,6 +1,7 @@
 name: GSMH Autonomous Research
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -39,40 +40,38 @@ jobs:
 
           import requests
 
+          # ============================================================
+          # CONFIGURATION
+          # ============================================================
 
           API_KEY = os.environ.get("GEMINI_API_KEY")
 
           if not API_KEY:
               raise RuntimeError("GEMINI_API_KEY is missing")
 
+          # 10-model rotating pool
           MODELS = [
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-3-flash-preview",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemma-4-31b-it",
-]
-
-model_index = 0
-cooldown_until = {m: 0 for m in MODELS}
-disabled_until = {m: 0 for m in MODELS}
-
-          API_URL = (
-              "https://generativelanguage.googleapis.com/"
-              "v1beta/models/"
-              + MODEL
-              + ":generateContent?key="
-              + API_KEY
-          )
+              "gemini-3.8-flash",
+              "gemini-3.7-flash",
+              "gemini-3.6-flash",
+              "gemini-3.5-flash",
+              "gemini-3.5-flash-lite",
+              "gemini-3.1-flash-lite",
+              "gemini-3-flash-preview",
+              "gemini-2.5-flash",
+              "gemini-2.5-flash-lite",
+              "gemma-4-31b-it",
+          ]
 
           MAX_CYCLES = 20
           REQUEST_TIMEOUT = 300
           MAX_OUTPUT_TOKENS = 12000
+
+          # Wait time before retrying a temporarily limited model
+          RATE_LIMIT_COOLDOWN = 60
+
+          # Maximum number of attempts across the model pool
+          MAX_MODEL_ATTEMPTS = len(MODELS) * 2
 
           ROOT = Path(".")
           REPORTS = ROOT / "agents" / "reports"
@@ -80,6 +79,30 @@ disabled_until = {m: 0 for m in MODELS}
 
           REPORTS.mkdir(parents=True, exist_ok=True)
 
+          # ============================================================
+          # MODEL ROTATION STATE
+          # ============================================================
+
+          model_index = 0
+
+          cooldown_until = {
+              model: 0.0
+              for model in MODELS
+          }
+
+          disabled_until = {
+              model: 0.0
+              for model in MODELS
+          }
+
+          model_failures = {
+              model: 0
+              for model in MODELS
+          }
+
+          # ============================================================
+          # GSMH IDENTITY
+          # ============================================================
 
           GSMH_IDENTITY = r"""
           ============================================================
@@ -123,39 +146,9 @@ disabled_until = {m: 0 for m in MODELS}
           THIS EQUATION IS ONLY A TARGET REPRESENTATION.
           It must be derived, modified, or rejected.
 
-          The research must determine:
-
-          1. What mathematical object carries memory?
-          2. How is memory generated?
-          3. What is its causal kernel?
-          4. What determines its persistence time?
-          5. Does memory depend on curvature history?
-          6. Does it depend on matter history?
-          7. Can it be derived from a microscopic theory?
-          8. Is the theory diffeomorphism covariant?
-          9. Are gravitational constraints consistent?
-          10. Is stress-energy conservation consistent?
-          11. What propagating degrees of freedom exist?
-          12. Are there ghosts?
-          13. Are there tachyonic instabilities?
-          14. Are there gradient instabilities?
-          15. Is propagation causal and hyperbolic?
-          16. Does GR emerge in the appropriate limit?
-          17. What is the Newtonian/weak-field limit?
-          18. What is the persistence law?
-          19. Can the mechanism affect galaxy rotation curves?
-          20. Can it reproduce the baryonic Tully-Fisher relation?
-          21. Can it produce gravitational lensing?
-          22. Can it address Bullet-Cluster-type systems?
-          23. Does it survive Solar-System constraints?
-          24. Does it survive binary-pulsar constraints?
-          25. Does it survive gravitational-wave constraints?
-          26. Does it survive cosmological constraints?
-
           GSMH IS A HYPOTHESIS, NOT A PROVEN THEORY.
           ============================================================
           """
-
 
           FORBIDDEN_REDEFINITIONS = [
               "generalized scalar-metric-holographic",
@@ -163,6 +156,9 @@ disabled_until = {m: 0 for m in MODELS}
               "scalar-metric-holographic",
           ]
 
+          # ============================================================
+          # FILE HELPERS
+          # ============================================================
 
           def read_text(path):
               try:
@@ -170,6 +166,9 @@ disabled_until = {m: 0 for m in MODELS}
               except Exception:
                   return ""
 
+          def save(path, text):
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(text, encoding="utf-8")
 
           canonical_model = read_text(
               ROOT / "memory" / "CANONICAL_MODEL.md"
@@ -179,94 +178,296 @@ disabled_until = {m: 0 for m in MODELS}
               ROOT / "memory" / "OPEN_PROBLEMS.md"
           )
 
+          # ============================================================
+          # MODEL ROTATION
+          # ============================================================
+
+          def get_available_model():
+              """
+              Find the next model whose cooldown has expired.
+              Searches circularly through the entire pool.
+              """
+
+              global model_index
+
+              now = time.time()
+
+              for _ in range(len(MODELS)):
+                  model = MODELS[model_index]
+
+                  if (
+                      now >= cooldown_until[model]
+                      and now >= disabled_until[model]
+                  ):
+                      return model
+
+                  model_index = (
+                      model_index + 1
+                  ) % len(MODELS)
+
+              return None
+
+          def rotate_model():
+              """
+              Move to the next model in circular order.
+              """
+
+              global model_index
+
+              model_index = (
+                  model_index + 1
+              ) % len(MODELS)
+
+          def mark_rate_limited(model):
+              """
+              Temporarily remove a rate-limited model from rotation.
+              """
+
+              cooldown_until[model] = (
+                  time.time() + RATE_LIMIT_COOLDOWN
+              )
+
+              model_failures[model] += 1
+
+          def mark_failed(model):
+              """
+              Temporarily disable a repeatedly failing model.
+              """
+
+              model_failures[model] += 1
+
+              if model_failures[model] >= 3:
+                  disabled_until[model] = (
+                      time.time() + 300
+                  )
+
+          # ============================================================
+          # GEMINI API
+          # ============================================================
+
+          def build_api_url(model):
+              return (
+                  "https://generativelanguage.googleapis.com/"
+                  "v1beta/models/"
+                  + model
+                  + ":generateContent?key="
+                  + API_KEY
+              )
 
           def call_model(prompt):
-              payload = {
-                  "contents": [
-                      {
-                          "parts": [
-                              {
-                                  "text": prompt
-                              }
-                          ]
-                      }
-                  ],
-                  "generationConfig": {
-                      "temperature": 0.15,
-                      "topP": 0.90,
-                      "maxOutputTokens": MAX_OUTPUT_TOKENS
-                  }
-              }
+              """
+              Send request using the current model.
+
+              If a model hits 429/5xx, automatically rotate to the
+              next available model.
+
+              The rotation is circular:
+              1 -> 2 -> ... -> 10 -> 1
+              """
+
+              global model_index
 
               last_error = None
 
-              for attempt in range(5):
+              for pool_attempt in range(MAX_MODEL_ATTEMPTS):
+
+                  model = get_available_model()
+
+                  if model is None:
+                      print(
+                          "All models are temporarily unavailable."
+                      )
+
+                      time.sleep(RATE_LIMIT_COOLDOWN)
+
+                      continue
+
+                  print(
+                      f"USING MODEL: {model}"
+                  )
+
+                  payload = {
+                      "contents": [
+                          {
+                              "parts": [
+                                  {
+                                      "text": prompt
+                                  }
+                              ]
+                          }
+                      ],
+                      "generationConfig": {
+                          "temperature": 0.15,
+                          "topP": 0.90,
+                          "maxOutputTokens": MAX_OUTPUT_TOKENS
+                      }
+                  }
+
                   try:
                       response = requests.post(
-                          API_URL,
+                          build_api_url(model),
                           json=payload,
                           timeout=REQUEST_TIMEOUT
                       )
 
+                      # ------------------------------------------------
+                      # SUCCESS
+                      # ------------------------------------------------
+
                       if response.status_code == 200:
+
                           data = response.json()
-                          candidates = data.get("candidates", [])
+
+                          candidates = data.get(
+                              "candidates",
+                              []
+                          )
 
                           if not candidates:
                               raise RuntimeError(
                                   "API returned no candidates"
                               )
 
-                          content = candidates[0].get("content", {})
-                          parts = content.get("parts", [])
+                          content = candidates[0].get(
+                              "content",
+                              {}
+                          )
+
+                          parts = content.get(
+                              "parts",
+                              []
+                          )
 
                           text_parts = []
 
                           for part in parts:
                               if isinstance(part, dict):
                                   text = part.get("text")
+
                                   if text:
                                       text_parts.append(text)
 
-                          result = "\n".join(text_parts).strip()
+                          result = "\n".join(
+                              text_parts
+                          ).strip()
 
                           if result:
+                              print(
+                                  f"MODEL SUCCESS: {model}"
+                              )
+
+                              # Successful model remains available.
+                              model_failures[model] = 0
+
                               return result
 
                           raise RuntimeError(
                               "API returned empty text"
                           )
 
+                      # ------------------------------------------------
+                      # RATE LIMIT / TEMPORARY FAILURE
+                      # ------------------------------------------------
+
                       if response.status_code in (
-                          429, 500, 502, 503, 504
+                          429,
+                          500,
+                          502,
+                          503,
+                          504
                       ):
+
                           last_error = (
                               f"HTTP {response.status_code}: "
                               f"{response.text[:1000]}"
                           )
-                          time.sleep(10 * (attempt + 1))
+
+                          print(
+                              f"MODEL FAILED: {model} "
+                              f"HTTP {response.status_code}"
+                          )
+
+                          mark_rate_limited(model)
+
+                          # Move immediately to next model.
+                          rotate_model()
+
+                          continue
+
+                      # ------------------------------------------------
+                      # PERMANENT MODEL/API ERROR
+                      # ------------------------------------------------
+
+                      if response.status_code in (
+                          400,
+                          401,
+                          403,
+                          404
+                      ):
+
+                          last_error = (
+                              f"HTTP {response.status_code}: "
+                              f"{response.text[:1000]}"
+                          )
+
+                          print(
+                              f"MODEL DISABLED: {model} "
+                              f"HTTP {response.status_code}"
+                          )
+
+                          disabled_until[model] = (
+                              time.time() + 3600
+                          )
+
+                          rotate_model()
+
                           continue
 
                       raise RuntimeError(
-                          f"Gemini API HTTP {response.status_code}: "
+                          f"Gemini API HTTP "
+                          f"{response.status_code}: "
                           f"{response.text[:2000]}"
                       )
 
                   except requests.RequestException as exc:
+
                       last_error = str(exc)
-                      time.sleep(10 * (attempt + 1))
+
+                      print(
+                          f"NETWORK ERROR on {model}: {exc}"
+                      )
+
+                      mark_failed(model)
+
+                      rotate_model()
+
+                      continue
+
+                  except RuntimeError as exc:
+
+                      last_error = str(exc)
+
+                      print(
+                          f"MODEL ERROR on {model}: {exc}"
+                      )
+
+                      mark_failed(model)
+
+                      rotate_model()
+
+                      continue
 
               raise RuntimeError(
-                  f"Gemini request failed after retries: {last_error}"
+                  "All model attempts failed. "
+                  f"Last error: {last_error}"
               )
 
-
-          def save(path, text):
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_text(text, encoding="utf-8")
-
+          # ============================================================
+          # STATUS / IDENTITY CHECKS
+          # ============================================================
 
           def extract_status(text):
+
               matches = re.findall(
                   r"^\s*FINAL STATUS:\s*"
                   r"(PROVEN|DERIVED-BUT-UNVERIFIED|"
@@ -280,11 +481,12 @@ disabled_until = {m: 0 for m in MODELS}
 
               return matches[-1]
 
-
           def detect_drift(text):
+
               lowered = text.lower()
 
               for forbidden in FORBIDDEN_REDEFINITIONS:
+
                   if forbidden in lowered:
                       return True
 
@@ -297,46 +499,68 @@ disabled_until = {m: 0 for m in MODELS}
 
               return False
 
+          # ============================================================
+          # LOAD PREVIOUS STATE
+          # ============================================================
 
           previous_synthesis = ""
           previous_audit = ""
           previous_repair = ""
 
           if STATE_FILE.exists():
+
               try:
+
                   previous_state = json.loads(
                       STATE_FILE.read_text(
                           encoding="utf-8"
                       )
                   )
 
-                  previous_synthesis = previous_state.get(
-                      "previous_synthesis",
-                      ""
+                  previous_synthesis = (
+                      previous_state.get(
+                          "previous_synthesis",
+                          ""
+                      )
                   )
 
-                  previous_audit = previous_state.get(
-                      "previous_audit",
-                      ""
+                  previous_audit = (
+                      previous_state.get(
+                          "previous_audit",
+                          ""
+                      )
                   )
 
-                  previous_repair = previous_state.get(
-                      "previous_repair",
-                      ""
+                  previous_repair = (
+                      previous_state.get(
+                          "previous_repair",
+                          ""
+                      )
                   )
 
               except Exception:
                   pass
 
+          # ============================================================
+          # RESEARCH LOOP
+          # ============================================================
 
-          for cycle in range(1, MAX_CYCLES + 1):
+          for cycle in range(
+              1,
+              MAX_CYCLES + 1
+          ):
 
               print("")
               print("=" * 70)
-              print(f"GSMH RESEARCH CYCLE {cycle}")
+              print(
+                  f"GSMH RESEARCH CYCLE {cycle}"
+              )
               print("=" * 70)
               print("")
 
+              # ========================================================
+              # FOUNDATION
+              # ========================================================
 
               foundation_prompt = f"""
               You are the FOUNDATION agent.
@@ -372,15 +596,6 @@ disabled_until = {m: 0 for m in MODELS}
               D. gravitational-wave memory
               E. unrelated modified gravity
 
-              Forbidden as GSMH identity:
-
-              - holographic gravity
-              - Scalar-Gauss-Bonnet
-              - generic scalar-tensor gravity
-              - MOND
-              - dark matter substitution
-              - unrelated modified gravity
-
               Output:
 
               IDENTITY CHECK
@@ -396,11 +611,13 @@ disabled_until = {m: 0 for m in MODELS}
               ACCEPTANCE CRITERIA
               """
 
-
               foundation = call_model(
                   foundation_prompt
               )
 
+              # ========================================================
+              # DERIVATION
+              # ========================================================
 
               derivation_prompt = f"""
               You are the DERIVATION agent.
@@ -457,335 +674,4 @@ disabled_until = {m: 0 for m in MODELS}
               CONJECTURE
               OPEN PROBLEM
 
-              Show equations and intermediate steps.
-              """
-
-
-              derivation = call_model(
-                  derivation_prompt
-              )
-
-
-              audit_prompt = f"""
-              You are the FALSIFIER agent.
-
-              {GSMH_IDENTITY}
-
-              FOUNDATION:
-              {foundation[-16000:]}
-
-              DERIVATION:
-              {derivation[-30000:]}
-
-              Try to destroy the proposed construction.
-
-              Test:
-
-              1. covariance
-              2. Bianchi identity
-              3. conservation
-              4. ghosts
-              5. tachyons
-              6. gradient instability
-              7. kinetic signs
-              8. extra degrees of freedom
-              9. causality
-              10. hyperbolicity
-              11. GR limit
-              12. Newtonian limit
-              13. Solar-System constraints
-              14. binary-pulsar constraints
-              15. gravitational-wave constraints
-              16. cosmology
-              17. lensing
-              18. galaxy rotation
-              19. Bullet-Cluster-type systems
-              20. whether proposed memory is merely ordinary
-                  retarded propagation.
-
-              For every failure give:
-
-              FAILURE
-
-              EQUATION OR ARGUMENT
-
-              WHY IT FAILS
-
-              SEVERITY
-
-              POSSIBLE REPAIR
-
-              Do not replace GSMH with another theory.
-              """
-
-
-              audit = call_model(
-                  audit_prompt
-              )
-
-
-              repair_prompt = f"""
-              You are the REPAIR agent.
-
-              {GSMH_IDENTITY}
-
-              FOUNDATION:
-              {foundation[-14000:]}
-
-              DERIVATION:
-              {derivation[-26000:]}
-
-              FALSIFIER:
-              {audit[-28000:]}
-
-              Repair only mathematically justified failures.
-
-              Rules:
-
-              - Preserve GSMH identity.
-              - Do not hide failures.
-              - Do not add arbitrary fitting parameters.
-              - Do not replace GSMH with another theory.
-              - Re-derive equations after every repair.
-              - If repair is impossible, explicitly say so.
-
-              Output:
-
-              ORIGINAL PROBLEM
-
-              REPAIR
-
-              MATHEMATICAL JUSTIFICATION
-
-              NEW EQUATIONS
-
-              NEW STABILITY CONDITIONS
-
-              NEW LIMITS
-
-              REMAINING FAILURE
-              """
-
-
-              repair = call_model(
-                  repair_prompt
-              )
-
-
-              synthesis_prompt = f"""
-              You are the SENIOR SYNTHESIS agent.
-
-              {GSMH_IDENTITY}
-
-              FOUNDATION:
-              {foundation[-14000:]}
-
-              DERIVATION:
-              {derivation[-28000:]}
-
-              FALSIFIER:
-              {audit[-26000:]}
-
-              REPAIR:
-              {repair[-26000:]}
-
-              PREVIOUS SYNTHESIS:
-              {previous_synthesis[-14000:]}
-
-              Evidence hierarchy:
-
-              LEVEL 1 = definition
-              LEVEL 2 = derived equation
-              LEVEL 3 = analytic proof
-              LEVEL 4 = numerical calculation
-              LEVEL 5 = observational comparison
-              LEVEL 6 = speculation
-
-              Never promote speculation to derivation.
-              Never promote a proposed equation to a proven equation.
-
-              Never call ordinary retarded propagation genuine GSMH
-              memory without proving the distinction.
-
-              Never call a curved-spacetime tail automatically GSMH.
-
-              Never redefine GSMH.
-
-              Never substitute:
-
-              - holographic gravity
-              - Scalar-Gauss-Bonnet
-              - generic scalar-tensor gravity
-              - MOND
-              - dark matter
-              - another unrelated modified-gravity theory
-
-              Such theories may only appear as comparison or
-              falsification cases.
-
-              Required final structure:
-
-              MODEL IDENTITY: GSMH-HEREDITARY-GRAVITY
-
-              CORE RESULT:
-              ...
-
-              DERIVED EQUATIONS:
-              ...
-
-              CONSERVATION/COVARIANCE RESULT:
-              ...
-
-              STABILITY RESULT:
-              ...
-
-              NEWTONIAN/WEAK-FIELD RESULT:
-              ...
-
-              MEMORY RESULT:
-              ...
-
-              OBSERVATIONAL RESULT:
-              ...
-
-              MAIN FAILURE OR OPEN PROBLEM:
-              ...
-
-              NEXT MATHEMATICAL TARGET:
-              ...
-
-              FINAL STATUS: X
-
-              X must be exactly one of:
-
-              PROVEN
-              DERIVED-BUT-UNVERIFIED
-              VIABLE-CANDIDATE
-              FAILED
-              OPEN
-
-              PROVEN is allowed only when the complete mathematical
-              consistency chain has genuinely been established.
-
-              FAILED is allowed only when a rigorous contradiction
-              destroys the GSMH mechanism.
-
-              Otherwise use the strongest honestly justified status.
-              """
-
-
-              synthesis = call_model(
-                  synthesis_prompt
-              )
-
-
-              drift_text = "\n".join(
-                  [
-                      foundation,
-                      derivation,
-                      audit,
-                      repair,
-                      synthesis
-                  ]
-              )
-
-              drift = detect_drift(
-                  drift_text
-              )
-
-              status = extract_status(
-                  synthesis
-              )
-
-              accepted_status = status
-
-              if drift:
-                  accepted_status = "OPEN"
-                  print(
-                      "MODEL IDENTITY DRIFT DETECTED"
-                  )
-
-
-              prefix = f"cycle_{cycle:03d}"
-
-
-              save(
-                  REPORTS / f"{prefix}_foundation.md",
-                  foundation
-              )
-
-              save(
-                  REPORTS / f"{prefix}_derivation.md",
-                  derivation
-              )
-
-              save(
-                  REPORTS / f"{prefix}_audit.md",
-                  audit
-              )
-
-              save(
-                  REPORTS / f"{prefix}_repair.md",
-                  repair
-              )
-
-              save(
-                  REPORTS / f"{prefix}_synthesis.md",
-                  synthesis
-              )
-
-
-              state = {
-                  "cycle": cycle,
-                  "status": accepted_status,
-                  "identity_drift": drift,
-                  "previous_synthesis": synthesis[-16000:],
-                  "previous_audit": audit[-12000:],
-                  "previous_repair": repair[-12000:]
-              }
-
-
-              STATE_FILE.write_text(
-                  json.dumps(
-                      state,
-                      indent=2
-                  ),
-                  encoding="utf-8"
-              )
-
-
-              previous_synthesis = synthesis
-              previous_audit = audit
-              previous_repair = repair
-
-
-              print(
-                  f"CYCLE {cycle} COMPLETE | "
-                  f"STATUS: {accepted_status}"
-              )
-
-
-              if accepted_status == "PROVEN":
-                  print("GSMH reached PROVEN status.")
-                  break
-
-
-              canonical_model = read_text(
-                  ROOT / "memory" / "CANONICAL_MODEL.md"
-              )
-
-              open_problems = read_text(
-                  ROOT / "memory" / "OPEN_PROBLEMS.md"
-              )
-
-              time.sleep(2)
-
-          PY
-
-      - name: Save research
-        run: |
-          git config user.name "GSMH Research Agent"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add agents/reports agents/state.json
-          git diff --cached --quiet || git commit -m "GSMH autonomous research cycles"
-          git push
+              Show equations and
