@@ -23,33 +23,149 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install requests
         run: pip install requests
 
-      - name: Check API
+      - name: Run GSMH research
         run: |
+          mkdir -p agents/reports
+
           python - <<'PY'
-          import os, requests
-          key = os.environ["GEMINI_API_KEY"]
-          url = "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent"
-          r = requests.post(
-              url,
-              headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-              json={"contents":[{"parts":[{"text":"Reply with exactly: GSMH API OK"}]}]},
-              timeout=120
-          )
-          r.raise_for_status()
-          print("GSMH API OK")
+          import os, requests, json, time
+          from pathlib import Path
+
+          KEY = os.environ["GEMINI_API_KEY"]
+          URL = "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent"
+
+          def ask(prompt):
+              for attempt in range(5):
+                  try:
+                      r = requests.post(
+                          URL,
+                          headers={
+                              "x-goog-api-key": KEY,
+                              "Content-Type": "application/json"
+                          },
+                          json={
+                              "contents": [
+                                  {"parts": [{"text": prompt}]}
+                              ]
+                          },
+                          timeout=(30, 900)
+                      )
+                      if r.status_code == 200:
+                          return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                      if r.status_code in (429, 500, 502, 503, 504):
+                          time.sleep(10 * (attempt + 1))
+                          continue
+                      raise RuntimeError(r.text)
+                  except Exception:
+                      if attempt == 4:
+                          raise
+                      time.sleep(10 * (attempt + 1))
+
+          canonical = Path("memory/CANONICAL_MODEL.md").read_text()
+          problems = Path("memory/OPEN_PROBLEMS.md").read_text()
+
+          for cycle in range(1, 21):
+              print(f"=== GSMH CYCLE {cycle} ===")
+
+              derivation = ask(f"""
+              You are the DERIVATION agent for GSMH.
+
+              Work from first principles. Do not assume GSMH is correct.
+              Develop the most rigorous mathematically consistent model possible.
+
+              Required:
+              1. Define fields and parameters.
+              2. Construct an action or mathematically equivalent equations.
+              3. Derive field equations explicitly.
+              4. Check covariance and conservation.
+              5. Derive perturbation equations.
+              6. Check ghosts, tachyons and gradient instabilities.
+              7. Check causality/hyperbolicity.
+              8. Derive the weak-field/Newtonian limit.
+              9. Derive an observable prediction.
+              10. Identify exactly what remains unproved.
+
+              Canonical model:
+              {canonical}
+
+              Open problems:
+              {problems}
+              """)
+
+              audit = ask(f"""
+              You are the AUDITOR agent for GSMH.
+
+              Rigorously attack the following derivation.
+              Find mathematical contradictions, missing constraints,
+              conservation failures, ghost/tachyon/gradient instabilities,
+              acausality, bad GR limits, Solar-System conflicts,
+              and cases where the claimed memory effect is merely an
+              ordinary retarded/tail effect rather than genuine hereditary memory.
+
+              DERIVATION:
+              {derivation}
+              """)
+
+              synthesis = ask(f"""
+              You are the SENIOR SYNTHESIS agent.
+
+              Combine the derivation and audit.
+              Repair the model wherever mathematically possible.
+              Reject invalid assumptions rather than protecting the hypothesis.
+
+              Return:
+              - canonical equations
+              - action if one exists
+              - assumptions
+              - derivation status
+              - conservation status
+              - stability status
+              - causality status
+              - Newtonian limit
+              - observational prediction
+              - strongest failure
+              - exact next mathematical problem
+              - final status
+
+              Allowed final status:
+              PROVEN
+              DERIVED-BUT-UNVERIFIED
+              VIABLE-CANDIDATE
+              FAILED
+              OPEN
+
+              DERIVATION:
+              {derivation}
+
+              AUDIT:
+              {audit}
+              """)
+
+              Path(f"agents/reports/cycle_{cycle:03d}_derivation.md").write_text(derivation)
+              Path(f"agents/reports/cycle_{cycle:03d}_audit.md").write_text(audit)
+              Path(f"agents/reports/cycle_{cycle:03d}_synthesis.md").write_text(synthesis)
+
+              state = {
+                  "cycle": cycle,
+                  "status": synthesis[-2000:]
+              }
+              Path("agents/state.json").write_text(json.dumps(state, indent=2))
+
+              print(f"Cycle {cycle} completed.")
+
+              if "PROVEN" in synthesis:
+                  print("GSMH reached PROVEN status.")
+                  break
+
           PY
 
-      - name: Run research agents
-        run: |
-          python agents/run_team.py
-
-      - name: Save research reports
+      - name: Save research
         run: |
           git config user.name "GSMH Research Agent"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add agents/reports agents/state.json || true
-          git diff --cached --quiet || git commit -m "GSMH autonomous research cycle"
-          git push || true
+          git add agents/reports agents/state.json
+          git diff --cached --quiet || git commit -m "GSMH autonomous research cycles"
+          git push
