@@ -5,6 +5,11 @@ on:
 
 permissions:
   contents: write
+  actions: write
+
+concurrency:
+  group: gsmh-autonomous
+  cancel-in-progress: false
 
 jobs:
   research:
@@ -26,19 +31,20 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade requests
 
-      - name: Run GSMH autonomous research
+      - name: Run GSMH Autonomous Research
         run: |
           mkdir -p agents/reports
-          mkdir -p agents
+          mkdir -p memory
 
-          python <<'PY'
-          import os
+          python - <<'PY'
           import json
-          import re
+          import os
+          import subprocess
           import time
           from pathlib import Path
 
           import requests
+
 
           # ============================================================
           # CONFIGURATION
@@ -49,7 +55,7 @@ jobs:
           if not API_KEY:
               raise RuntimeError("GEMINI_API_KEY is missing")
 
-          # 10-model rotating pool
+
           MODELS = [
               "gemini-3.8-flash",
               "gemini-3.7-flash",
@@ -63,15 +69,13 @@ jobs:
               "gemma-4-31b-it",
           ]
 
-          MAX_CYCLES = 20
+          MAX_CYCLES = 10
           REQUEST_TIMEOUT = 300
           MAX_OUTPUT_TOKENS = 12000
 
-          # Wait time before retrying a temporarily limited model
           RATE_LIMIT_COOLDOWN = 60
-
-          # Maximum number of attempts across the model pool
-          MAX_MODEL_ATTEMPTS = len(MODELS) * 2
+          INVALID_MODEL_COOLDOWN = 3600
+          NETWORK_COOLDOWN = 30
 
           ROOT = Path(".")
           REPORTS = ROOT / "agents" / "reports"
@@ -79,138 +83,147 @@ jobs:
 
           REPORTS.mkdir(parents=True, exist_ok=True)
 
+
           # ============================================================
-          # MODEL ROTATION STATE
+          # GSMH IDENTITY LOCK
           # ============================================================
 
-          model_index = 0
+          GSMH_IDENTITY = """
+          GSMH = Gravity Spacetime Memory Hypothesis.
+
+          GSMH is a speculative gravitational hypothesis,
+          NOT a proven theory.
+
+          Core target:
+
+          The gravitational response may depend on present
+          matter-energy plus a causal functional of previous
+          spacetime curvature and/or previous matter distribution.
+
+          Target schematic:
+
+          E_munu[g](x)
+          =
+          8*pi*G*T_munu(x)
+          +
+          M_munu[g,T_history](x)
+
+          M_munu represents a possible hereditary gravitational
+          memory functional.
+
+          The existence, mathematical form, consistency,
+          magnitude and observability of this memory must be derived.
+
+          Do NOT redefine GSMH into an unrelated modified-gravity theory.
+
+          Distinguish carefully between:
+
+          1. genuine hereditary memory
+          2. ordinary retarded response
+          3. curved-spacetime tail effects
+          4. gravitational-wave memory
+          5. unrelated modified gravity
+          """
+
+
+          # ============================================================
+          # FILE HELPERS
+          # ============================================================
+
+          def read_file(path, limit=20000):
+              try:
+                  text = path.read_text(encoding="utf-8")
+                  return text[-limit:]
+              except Exception:
+                  return ""
+
+
+          def write_file(path, content):
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content, encoding="utf-8")
+
+
+          canonical_model = read_file(
+              ROOT / "memory" / "CANONICAL_MODEL.md"
+          )
+
+          open_problems = read_file(
+              ROOT / "memory" / "OPEN_PROBLEMS.md"
+          )
+
+
+          # ============================================================
+          # LOAD STATE
+          # ============================================================
+
+          state = {}
+
+          if STATE_FILE.exists():
+              try:
+                  state = json.loads(
+                      STATE_FILE.read_text(encoding="utf-8")
+                  )
+              except Exception:
+                  state = {}
+
+
+          previous_synthesis = state.get(
+              "previous_synthesis",
+              ""
+          )
+
+          previous_audit = state.get(
+              "previous_audit",
+              ""
+          )
+
+
+          # ============================================================
+          # MODEL ROTATION
+          # ============================================================
+
+          model_index = int(
+              state.get("model_index", 0)
+          ) % len(MODELS)
 
           cooldown_until = {
               model: 0.0
               for model in MODELS
           }
 
-          disabled_until = {
-              model: 0.0
-              for model in MODELS
-          }
-
-          model_failures = {
+          failures = {
               model: 0
               for model in MODELS
           }
 
-          # ============================================================
-          # GSMH IDENTITY
-          # ============================================================
 
-          GSMH_IDENTITY = r"""
-          ============================================================
-          GSMH MODEL IDENTITY LOCK
-          ============================================================
-
-          MODEL IDENTITY:
-          GSMH-HEREDITARY-GRAVITY
-
-          Full name:
-          Gravity Spacetime Memory Hypothesis
-
-          GSMH is a speculative gravitational hypothesis.
-
-          Core statement:
-
-          The gravitational response at an event may depend not only
-          on the present matter-energy configuration, but also on a
-          mathematically defined functional of prior spacetime
-          curvature and/or prior matter distribution.
-
-          The central proposed physical idea is HEREDITARY
-          GRAVITATIONAL RESPONSE: a previous matter configuration may
-          leave a residual gravitational influence after the source
-          changes, moves, disperses, explodes, or otherwise evolves.
-
-          The existence, mathematical form, consistency, magnitude and
-          observability of this memory are NOT assumed to be proven.
-
-          Target schematic equation:
-
-              E_munu[g](x)
-              =
-              8*pi*G*T_munu(x)
-              +
-              M_munu[g,T_history](x)
-
-          M_munu represents a possible causal functional of previous
-          gravitational/matter history.
-
-          THIS EQUATION IS ONLY A TARGET REPRESENTATION.
-          It must be derived, modified, or rejected.
-
-          GSMH IS A HYPOTHESIS, NOT A PROVEN THEORY.
-          ============================================================
-          """
-
-          FORBIDDEN_REDEFINITIONS = [
-              "generalized scalar-metric-holographic",
-              "generalized scalar metric holographic",
-              "scalar-metric-holographic",
-          ]
-
-          # ============================================================
-          # FILE HELPERS
-          # ============================================================
-
-          def read_text(path):
-              try:
-                  return path.read_text(encoding="utf-8")
-              except Exception:
-                  return ""
-
-          def save(path, text):
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_text(text, encoding="utf-8")
-
-          canonical_model = read_text(
-              ROOT / "memory" / "CANONICAL_MODEL.md"
-          )
-
-          open_problems = read_text(
-              ROOT / "memory" / "OPEN_PROBLEMS.md"
-          )
-
-          # ============================================================
-          # MODEL ROTATION
-          # ============================================================
-
-          def get_available_model():
-              """
-              Find the next model whose cooldown has expired.
-              Searches circularly through the entire pool.
-              """
+          def get_next_available_model():
 
               global model_index
 
               now = time.time()
 
               for _ in range(len(MODELS)):
+
                   model = MODELS[model_index]
 
-                  if (
-                      now >= cooldown_until[model]
-                      and now >= disabled_until[model]
-                  ):
+                  if now >= cooldown_until[model]:
                       return model
 
                   model_index = (
                       model_index + 1
                   ) % len(MODELS)
 
-              return None
+              print(
+                  "ALL MODELS TEMPORARILY UNAVAILABLE."
+              )
 
-          def rotate_model():
-              """
-              Move to the next model in circular order.
-              """
+              time.sleep(RATE_LIMIT_COOLDOWN)
+
+              return get_next_available_model()
+
+
+          def rotate():
 
               global model_index
 
@@ -218,34 +231,13 @@ jobs:
                   model_index + 1
               ) % len(MODELS)
 
-          def mark_rate_limited(model):
-              """
-              Temporarily remove a rate-limited model from rotation.
-              """
-
-              cooldown_until[model] = (
-                  time.time() + RATE_LIMIT_COOLDOWN
-              )
-
-              model_failures[model] += 1
-
-          def mark_failed(model):
-              """
-              Temporarily disable a repeatedly failing model.
-              """
-
-              model_failures[model] += 1
-
-              if model_failures[model] >= 3:
-                  disabled_until[model] = (
-                      time.time() + 300
-                  )
 
           # ============================================================
           # GEMINI API
           # ============================================================
 
-          def build_api_url(model):
+          def build_url(model):
+
               return (
                   "https://generativelanguage.googleapis.com/"
                   "v1beta/models/"
@@ -254,37 +246,35 @@ jobs:
                   + API_KEY
               )
 
+
           def call_model(prompt):
-              """
-              Send request using the current model.
-
-              If a model hits 429/5xx, automatically rotate to the
-              next available model.
-
-              The rotation is circular:
-              1 -> 2 -> ... -> 10 -> 1
-              """
 
               global model_index
 
-              last_error = None
+              last_error = "unknown"
 
-              for pool_attempt in range(MAX_MODEL_ATTEMPTS):
 
-                  model = get_available_model()
+              # Several complete passes through the model pool.
+              for attempt in range(len(MODELS) * 3):
 
-                  if model is None:
-                      print(
-                          "All models are temporarily unavailable."
-                      )
+                  model = get_next_available_model()
 
-                      time.sleep(RATE_LIMIT_COOLDOWN)
-
-                      continue
-
+                  print("")
                   print(
-                      f"USING MODEL: {model}"
+                      "=================================================="
                   )
+                  print(
+                      "MODEL ATTEMPT:",
+                      attempt + 1
+                  )
+                  print(
+                      "USING MODEL:",
+                      model
+                  )
+                  print(
+                      "=================================================="
+                  )
+
 
                   payload = {
                       "contents": [
@@ -303,12 +293,15 @@ jobs:
                       }
                   }
 
+
                   try:
+
                       response = requests.post(
-                          build_api_url(model),
+                          build_url(model),
                           json=payload,
                           timeout=REQUEST_TIMEOUT
                       )
+
 
                       # ------------------------------------------------
                       # SUCCESS
@@ -325,48 +318,54 @@ jobs:
 
                           if not candidates:
                               raise RuntimeError(
-                                  "API returned no candidates"
+                                  "No candidates returned"
                               )
 
-                          content = candidates[0].get(
-                              "content",
-                              {}
-                          )
-
-                          parts = content.get(
-                              "parts",
-                              []
+                          parts = (
+                              candidates[0]
+                              .get("content", {})
+                              .get("parts", [])
                           )
 
                           text_parts = []
 
                           for part in parts:
+
                               if isinstance(part, dict):
-                                  text = part.get("text")
+
+                                  text = part.get(
+                                      "text",
+                                      ""
+                                  )
 
                                   if text:
                                       text_parts.append(text)
+
 
                           result = "\n".join(
                               text_parts
                           ).strip()
 
+
                           if result:
+
                               print(
-                                  f"MODEL SUCCESS: {model}"
+                                  "MODEL SUCCESS:",
+                                  model
                               )
 
-                              # Successful model remains available.
-                              model_failures[model] = 0
+                              failures[model] = 0
 
                               return result
 
+
                           raise RuntimeError(
-                              "API returned empty text"
+                              "Empty model response"
                           )
 
+
                       # ------------------------------------------------
-                      # RATE LIMIT / TEMPORARY FAILURE
+                      # RATE LIMIT / TEMPORARY SERVER FAILURE
                       # ------------------------------------------------
 
                       if response.status_code in (
@@ -378,24 +377,30 @@ jobs:
                       ):
 
                           last_error = (
-                              f"HTTP {response.status_code}: "
-                              f"{response.text[:1000]}"
+                              "HTTP "
+                              + str(response.status_code)
+                          )
+
+                          failures[model] += 1
+
+                          cooldown_until[model] = (
+                              time.time()
+                              + RATE_LIMIT_COOLDOWN
                           )
 
                           print(
-                              f"MODEL FAILED: {model} "
-                              f"HTTP {response.status_code}"
+                              "TEMPORARILY LIMITED:",
+                              model,
+                              last_error
                           )
 
-                          mark_rate_limited(model)
-
-                          # Move immediately to next model.
-                          rotate_model()
+                          rotate()
 
                           continue
 
+
                       # ------------------------------------------------
-                      # PERMANENT MODEL/API ERROR
+                      # INVALID / UNAVAILABLE MODEL
                       # ------------------------------------------------
 
                       if response.status_code in (
@@ -406,140 +411,104 @@ jobs:
                       ):
 
                           last_error = (
-                              f"HTTP {response.status_code}: "
-                              f"{response.text[:1000]}"
+                              "HTTP "
+                              + str(response.status_code)
+                              + ": "
+                              + response.text[:1000]
+                          )
+
+                          failures[model] += 1
+
+                          cooldown_until[model] = (
+                              time.time()
+                              + INVALID_MODEL_COOLDOWN
                           )
 
                           print(
-                              f"MODEL DISABLED: {model} "
-                              f"HTTP {response.status_code}"
+                              "MODEL UNAVAILABLE:",
+                              model,
+                              last_error
                           )
 
-                          disabled_until[model] = (
-                              time.time() + 3600
-                          )
-
-                          rotate_model()
+                          rotate()
 
                           continue
 
-                      raise RuntimeError(
-                          f"Gemini API HTTP "
-                          f"{response.status_code}: "
-                          f"{response.text[:2000]}"
+
+                      # ------------------------------------------------
+                      # OTHER HTTP ERROR
+                      # ------------------------------------------------
+
+                      last_error = (
+                          "HTTP "
+                          + str(response.status_code)
+                          + ": "
+                          + response.text[:1000]
                       )
+
+                      failures[model] += 1
+
+                      cooldown_until[model] = (
+                          time.time()
+                          + RATE_LIMIT_COOLDOWN
+                      )
+
+                      print(
+                          "HTTP ERROR:",
+                          model,
+                          last_error
+                      )
+
+                      rotate()
+
+                      continue
+
 
                   except requests.RequestException as exc:
 
                       last_error = str(exc)
 
-                      print(
-                          f"NETWORK ERROR on {model}: {exc}"
+                      failures[model] += 1
+
+                      cooldown_until[model] = (
+                          time.time()
+                          + NETWORK_COOLDOWN
                       )
 
-                      mark_failed(model)
+                      print(
+                          "NETWORK ERROR:",
+                          model,
+                          exc
+                      )
 
-                      rotate_model()
+                      rotate()
 
                       continue
 
-                  except RuntimeError as exc:
+
+                  except Exception as exc:
 
                       last_error = str(exc)
 
+                      failures[model] += 1
+
                       print(
-                          f"MODEL ERROR on {model}: {exc}"
+                          "MODEL ERROR:",
+                          model,
+                          exc
                       )
 
-                      mark_failed(model)
-
-                      rotate_model()
+                      rotate()
 
                       continue
 
+
               raise RuntimeError(
                   "All model attempts failed. "
-                  f"Last error: {last_error}"
+                  "Last error: "
+                  + last_error
               )
 
-          # ============================================================
-          # STATUS / IDENTITY CHECKS
-          # ============================================================
-
-          def extract_status(text):
-
-              matches = re.findall(
-                  r"^\s*FINAL STATUS:\s*"
-                  r"(PROVEN|DERIVED-BUT-UNVERIFIED|"
-                  r"VIABLE-CANDIDATE|FAILED|OPEN)\s*$",
-                  text,
-                  flags=re.MULTILINE
-              )
-
-              if not matches:
-                  return "OPEN"
-
-              return matches[-1]
-
-          def detect_drift(text):
-
-              lowered = text.lower()
-
-              for forbidden in FORBIDDEN_REDEFINITIONS:
-
-                  if forbidden in lowered:
-                      return True
-
-              required_identity = (
-                  "MODEL IDENTITY: GSMH-HEREDITARY-GRAVITY"
-              )
-
-              if required_identity not in text:
-                  return True
-
-              return False
-
-          # ============================================================
-          # LOAD PREVIOUS STATE
-          # ============================================================
-
-          previous_synthesis = ""
-          previous_audit = ""
-          previous_repair = ""
-
-          if STATE_FILE.exists():
-
-              try:
-
-                  previous_state = json.loads(
-                      STATE_FILE.read_text(
-                          encoding="utf-8"
-                      )
-                  )
-
-                  previous_synthesis = (
-                      previous_state.get(
-                          "previous_synthesis",
-                          ""
-                      )
-                  )
-
-                  previous_audit = (
-                      previous_state.get(
-                          "previous_audit",
-                          ""
-                      )
-                  )
-
-                  previous_repair = (
-                      previous_state.get(
-                          "previous_repair",
-                          ""
-                      )
-                  )
-
-              except Exception:
-                  pass
 
           # ============================================================
           # RESEARCH LOOP
@@ -551,121 +520,782 @@ jobs:
           ):
 
               print("")
-              print("=" * 70)
-              print(
-                  f"GSMH RESEARCH CYCLE {cycle}"
-              )
-              print("=" * 70)
               print("")
+              print(
+                  "##################################################"
+              )
+              print(
+                  "GSMH AUTONOMOUS CYCLE",
+                  cycle,
+                  "/",
+                  MAX_CYCLES
+              )
+              print(
+                  "##################################################"
+              )
+
 
               # ========================================================
               # FOUNDATION
               # ========================================================
 
               foundation_prompt = f"""
-              You are the FOUNDATION agent.
+              You are the FOUNDATION agent of GSMH.
 
               {GSMH_IDENTITY}
 
-              Existing canonical model:
-              {canonical_model[-12000:]}
+              EXISTING CANONICAL MODEL:
+              {canonical_model}
 
-              Existing open problems:
-              {open_problems[-12000:]}
+              EXISTING OPEN PROBLEMS:
+              {open_problems}
 
-              Previous synthesis:
+              PREVIOUS SYNTHESIS:
               {previous_synthesis[-16000:]}
 
-              Previous audit:
+              PREVIOUS AUDIT:
               {previous_audit[-12000:]}
 
-              Previous repair:
-              {previous_repair[-12000:]}
+              Your task:
 
-              Determine ONE precise mathematical problem that this
-              cycle must solve.
+              Select ONE highest-priority mathematical problem
+              that must be solved for GSMH.
 
-              Do not invent a new theory.
-              Do not redefine GSMH.
+              Do not create a different theory.
 
-              Explicitly distinguish:
+              Focus on the origin of the proposed gravitational
+              memory response.
 
-              A. genuine hereditary memory
-              B. ordinary retarded response
-              C. curved-spacetime tail effects
-              D. gravitational-wave memory
-              E. unrelated modified gravity
+              Explicitly determine whether the target can be
+              distinguished from ordinary retarded response.
 
-              Output:
+              Produce:
 
-              IDENTITY CHECK
+              1. CURRENT GAP
+              2. SINGLE MATHEMATICAL TARGET
+              3. NECESSARY DERIVATION
+              4. NECESSARY ASSUMPTIONS
+              5. FALSIFICATION TEST
+              6. ACCEPTANCE CRITERIA
 
-              CURRENT GAP
-
-              SINGLE MATHEMATICAL TARGET
-
-              REQUIRED DERIVATION
-
-              REQUIRED FALSIFICATION TEST
-
-              ACCEPTANCE CRITERIA
+              Do real mathematical planning, not general discussion.
               """
+
 
               foundation = call_model(
                   foundation_prompt
               )
+
 
               # ========================================================
               # DERIVATION
               # ========================================================
 
               derivation_prompt = f"""
-              You are the DERIVATION agent.
+              You are the DERIVATION agent of GSMH.
 
               {GSMH_IDENTITY}
 
               FOUNDATION REPORT:
-              {foundation[-18000:]}
+              {foundation[-20000:]}
 
               PREVIOUS SYNTHESIS:
-              {previous_synthesis[-18000:]}
+              {previous_synthesis[-16000:]}
 
-              Perform ACTUAL mathematics.
+              Perform the actual mathematical derivation.
 
-              Priority:
+              PRIORITY IS THE ORIGIN OF THE MEMORY RESPONSE.
 
-              1. Derive the origin of the memory response.
-              2. Investigate the microscopic CTP/2PI route if relevant.
-              3. Investigate a microscopic field q with O=q^2.
-              4. Analyze:
+              Investigate the microscopic CTP/Schwinger-Keldysh
+              and 2PI route where appropriate.
 
-                 Pi(k) =
-                 integral d^3q/(2*pi)^3
-                 [
-                   1 /
-                   ((q^2+m^2)((q+k)^2+m^2))
-                 ]
+              Investigate a microscopic field q with collective
+              operator:
 
-              5. Determine whether such a response can generate a
-                 genuine hereditary gravitational kernel.
-              6. Derive a covariant effective equation if justified.
-              7. Vary any proposed action explicitly.
-              8. Check conservation.
-              9. Check diffeomorphism covariance.
-              10. Derive the weak-field/Newtonian limit.
-              11. Linearize the theory.
-              12. Determine propagating degrees of freedom.
-              13. Compute kinetic and gradient stability conditions.
-              14. Determine causality/hyperbolicity.
-              15. Derive the memory timescale if possible.
-              16. Determine whether the effect can survive local tests.
+              O(x) = q^2(x)
 
-              Never introduce an arbitrary scalar and call it memory.
+              Analyze the static susceptibility:
+
+              Pi(k)
+              =
+              integral d^3q/(2*pi)^3
+              [
+                  1 /
+                  ((q^2+m^2)((q+k)^2+m^2))
+              ]
+
+              Determine exactly what this response means.
+
+              Determine whether it can generate a genuine hereditary
+              gravitational kernel.
+
+              If a kernel is derived, determine:
+
+name: GSMH Autonomous Research
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: gsmh-autonomous
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade requests
+
+      - name: Run GSMH Autonomous Research
+        run: |
+          mkdir -p agents/reports
+          mkdir -p memory
+
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import time
+          from pathlib import Path
+
+          import requests
+
+
+          # ============================================================
+          # CONFIGURATION
+          # ============================================================
+
+          API_KEY = os.environ.get("GEMINI_API_KEY")
+
+          if not API_KEY:
+              raise RuntimeError("GEMINI_API_KEY is missing")
+
+
+          MODELS = [
+              "gemini-3.8-flash",
+              "gemini-3.7-flash",
+              "gemini-3.6-flash",
+              "gemini-3.5-flash",
+              "gemini-3.5-flash-lite",
+              "gemini-3.1-flash-lite",
+              "gemini-3-flash-preview",
+              "gemini-2.5-flash",
+              "gemini-2.5-flash-lite",
+              "gemma-4-31b-it",
+          ]
+
+          MAX_CYCLES = 10
+          REQUEST_TIMEOUT = 300
+          MAX_OUTPUT_TOKENS = 12000
+
+          RATE_LIMIT_COOLDOWN = 60
+          INVALID_MODEL_COOLDOWN = 3600
+          NETWORK_COOLDOWN = 30
+
+          ROOT = Path(".")
+          REPORTS = ROOT / "agents" / "reports"
+          STATE_FILE = ROOT / "agents" / "state.json"
+
+          REPORTS.mkdir(parents=True, exist_ok=True)
+
+
+          # ============================================================
+          # GSMH IDENTITY LOCK
+          # ============================================================
+
+          GSMH_IDENTITY = """
+          GSMH = Gravity Spacetime Memory Hypothesis.
+
+          GSMH is a speculative gravitational hypothesis,
+          NOT a proven theory.
+
+          Core target:
+
+          The gravitational response may depend on present
+          matter-energy plus a causal functional of previous
+          spacetime curvature and/or previous matter distribution.
+
+          Target schematic:
+
+          E_munu[g](x)
+          =
+          8*pi*G*T_munu(x)
+          +
+          M_munu[g,T_history](x)
+
+          M_munu represents a possible hereditary gravitational
+          memory functional.
+
+          The existence, mathematical form, consistency,
+          magnitude and observability of this memory must be derived.
+
+          Do NOT redefine GSMH into an unrelated modified-gravity theory.
+
+          Distinguish carefully between:
+
+          1. genuine hereditary memory
+          2. ordinary retarded response
+          3. curved-spacetime tail effects
+          4. gravitational-wave memory
+          5. unrelated modified gravity
+          """
+
+
+          # ============================================================
+          # FILE HELPERS
+          # ============================================================
+
+          def read_file(path, limit=20000):
+              try:
+                  text = path.read_text(encoding="utf-8")
+                  return text[-limit:]
+              except Exception:
+                  return ""
+
+
+          def write_file(path, content):
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content, encoding="utf-8")
+
+
+          canonical_model = read_file(
+              ROOT / "memory" / "CANONICAL_MODEL.md"
+          )
+
+          open_problems = read_file(
+              ROOT / "memory" / "OPEN_PROBLEMS.md"
+          )
+
+
+          # ============================================================
+          # LOAD STATE
+          # ============================================================
+
+          state = {}
+
+          if STATE_FILE.exists():
+              try:
+                  state = json.loads(
+                      STATE_FILE.read_text(encoding="utf-8")
+                  )
+              except Exception:
+                  state = {}
+
+
+          previous_synthesis = state.get(
+              "previous_synthesis",
+              ""
+          )
+
+          previous_audit = state.get(
+              "previous_audit",
+              ""
+          )
+
+
+          # ============================================================
+          # MODEL ROTATION
+          # ============================================================
+
+          model_index = int(
+              state.get("model_index", 0)
+          ) % len(MODELS)
+
+          cooldown_until = {
+              model: 0.0
+              for model in MODELS
+          }
+
+          failures = {
+              model: 0
+              for model in MODELS
+          }
+
+
+          def get_next_available_model():
+
+              global model_index
+
+              now = time.time()
+
+              for _ in range(len(MODELS)):
+
+                  model = MODELS[model_index]
+
+                  if now >= cooldown_until[model]:
+                      return model
+
+                  model_index = (
+                      model_index + 1
+                  ) % len(MODELS)
+
+              print(
+                  "ALL MODELS TEMPORARILY UNAVAILABLE."
+              )
+
+              time.sleep(RATE_LIMIT_COOLDOWN)
+
+              return get_next_available_model()
+
+
+          def rotate():
+
+              global model_index
+
+              model_index = (
+                  model_index + 1
+              ) % len(MODELS)
+
+
+          # ============================================================
+          # GEMINI API
+          # ============================================================
+
+          def build_url(model):
+
+              return (
+                  "https://generativelanguage.googleapis.com/"
+                  "v1beta/models/"
+                  + model
+                  + ":generateContent?key="
+                  + API_KEY
+              )
+
+
+          def call_model(prompt):
+
+              global model_index
+
+              last_error = "unknown"
+
+
+              # Several complete passes through the model pool.
+              for attempt in range(len(MODELS) * 3):
+
+                  model = get_next_available_model()
+
+                  print("")
+                  print(
+                      "=================================================="
+                  )
+                  print(
+                      "MODEL ATTEMPT:",
+                      attempt + 1
+                  )
+                  print(
+                      "USING MODEL:",
+                      model
+                  )
+                  print(
+                      "=================================================="
+                  )
+
+
+                  payload = {
+                      "contents": [
+                          {
+                              "parts": [
+                                  {
+                                      "text": prompt
+                                  }
+                              ]
+                          }
+                      ],
+                      "generationConfig": {
+                          "temperature": 0.15,
+                          "topP": 0.90,
+                          "maxOutputTokens": MAX_OUTPUT_TOKENS
+                      }
+                  }
+
+
+                  try:
+
+                      response = requests.post(
+                          build_url(model),
+                          json=payload,
+                          timeout=REQUEST_TIMEOUT
+                      )
+
+
+                      # ------------------------------------------------
+                      # SUCCESS
+                      # ------------------------------------------------
+
+                      if response.status_code == 200:
+
+                          data = response.json()
+
+                          candidates = data.get(
+                              "candidates",
+                              []
+                          )
+
+                          if not candidates:
+                              raise RuntimeError(
+                                  "No candidates returned"
+                              )
+
+                          parts = (
+                              candidates[0]
+                              .get("content", {})
+                              .get("parts", [])
+                          )
+
+                          text_parts = []
+
+                          for part in parts:
+
+                              if isinstance(part, dict):
+
+                                  text = part.get(
+                                      "text",
+                                      ""
+                                  )
+
+                                  if text:
+                                      text_parts.append(text)
+
+
+                          result = "\n".join(
+                              text_parts
+                          ).strip()
+
+
+                          if result:
+
+                              print(
+                                  "MODEL SUCCESS:",
+                                  model
+                              )
+
+                              failures[model] = 0
+
+                              return result
+
+
+                          raise RuntimeError(
+                              "Empty model response"
+                          )
+
+
+                      # ------------------------------------------------
+                      # RATE LIMIT / TEMPORARY SERVER FAILURE
+                      # ------------------------------------------------
+
+                      if response.status_code in (
+                          429,
+                          500,
+                          502,
+                          503,
+                          504
+                      ):
+
+                          last_error = (
+                              "HTTP "
+                              + str(response.status_code)
+                          )
+
+                          failures[model] += 1
+
+                          cooldown_until[model] = (
+                              time.time()
+                              + RATE_LIMIT_COOLDOWN
+                          )
+
+                          print(
+                              "TEMPORARILY LIMITED:",
+                              model,
+                              last_error
+                          )
+
+                          rotate()
+
+                          continue
+
+
+                      # ------------------------------------------------
+                      # INVALID / UNAVAILABLE MODEL
+                      # ------------------------------------------------
+
+                      if response.status_code in (
+                          400,
+                          401,
+                          403,
+                          404
+                      ):
+
+                          last_error = (
+                              "HTTP "
+                              + str(response.status_code)
+                              + ": "
+                              + response.text[:1000]
+                          )
+
+                          failures[model] += 1
+
+                          cooldown_until[model] = (
+                              time.time()
+                              + INVALID_MODEL_COOLDOWN
+                          )
+
+                          print(
+                              "MODEL UNAVAILABLE:",
+                              model,
+                              last_error
+                          )
+
+                          rotate()
+
+                          continue
+
+
+                      # ------------------------------------------------
+                      # OTHER HTTP ERROR
+                      # ------------------------------------------------
+
+                      last_error = (
+                          "HTTP "
+                          + str(response.status_code)
+                          + ": "
+                          + response.text[:1000]
+                      )
+
+                      failures[model] += 1
+
+                      cooldown_until[model] = (
+                          time.time()
+                          + RATE_LIMIT_COOLDOWN
+                      )
+
+                      print(
+                          "HTTP ERROR:",
+                          model,
+                          last_error
+                      )
+
+                      rotate()
+
+                      continue
+
+
+                  except requests.RequestException as exc:
+
+                      last_error = str(exc)
+
+                      failures[model] += 1
+
+                      cooldown_until[model] = (
+                          time.time()
+                          + NETWORK_COOLDOWN
+                      )
+
+                      print(
+                          "NETWORK ERROR:",
+                          model,
+                          exc
+                      )
+
+                      rotate()
+
+                      continue
+
+
+                  except Exception as exc:
+
+                      last_error = str(exc)
+
+                      failures[model] += 1
+
+                      print(
+                          "MODEL ERROR:",
+                          model,
+                          exc
+                      )
+
+                      rotate()
+
+                      continue
+
+
+              raise RuntimeError(
+                  "All model attempts failed. "
+                  "Last error: "
+                  + last_error
+              )
+
+
+          # ============================================================
+          # RESEARCH LOOP
+          # ============================================================
+
+          for cycle in range(
+              1,
+              MAX_CYCLES + 1
+          ):
+
+              print("")
+              print("")
+              print(
+                  "##################################################"
+              )
+              print(
+                  "GSMH AUTONOMOUS CYCLE",
+                  cycle,
+                  "/",
+                  MAX_CYCLES
+              )
+              print(
+                  "##################################################"
+              )
+
+
+              # ========================================================
+              # FOUNDATION
+              # ========================================================
+
+              foundation_prompt = f"""
+              You are the FOUNDATION agent of GSMH.
+
+              {GSMH_IDENTITY}
+
+              EXISTING CANONICAL MODEL:
+              {canonical_model}
+
+              EXISTING OPEN PROBLEMS:
+              {open_problems}
+
+              PREVIOUS SYNTHESIS:
+              {previous_synthesis[-16000:]}
+
+              PREVIOUS AUDIT:
+              {previous_audit[-12000:]}
+
+              Your task:
+
+              Select ONE highest-priority mathematical problem
+              that must be solved for GSMH.
+
+              Do not create a different theory.
+
+              Focus on the origin of the proposed gravitational
+              memory response.
+
+              Explicitly determine whether the target can be
+              distinguished from ordinary retarded response.
+
+              Produce:
+
+              1. CURRENT GAP
+              2. SINGLE MATHEMATICAL TARGET
+              3. NECESSARY DERIVATION
+              4. NECESSARY ASSUMPTIONS
+              5. FALSIFICATION TEST
+              6. ACCEPTANCE CRITERIA
+
+              Do real mathematical planning, not general discussion.
+              """
+
+
+              foundation = call_model(
+                  foundation_prompt
+              )
+
+
+              # ========================================================
+              # DERIVATION
+              # ========================================================
+
+              derivation_prompt = f"""
+              You are the DERIVATION agent of GSMH.
+
+              {GSMH_IDENTITY}
+
+              FOUNDATION REPORT:
+              {foundation[-20000:]}
+
+              PREVIOUS SYNTHESIS:
+              {previous_synthesis[-16000:]}
+
+              Perform the actual mathematical derivation.
+
+              PRIORITY IS THE ORIGIN OF THE MEMORY RESPONSE.
+
+              Investigate the microscopic CTP/Schwinger-Keldysh
+              and 2PI route where appropriate.
+
+              Investigate a microscopic field q with collective
+              operator:
+
+              O(x) = q^2(x)
+
+              Analyze the static susceptibility:
+
+              Pi(k)
+              =
+              integral d^3q/(2*pi)^3
+              [
+                  1 /
+                  ((q^2+m^2)((q+k)^2+m^2))
+              ]
+
+              Determine exactly what this response means.
+
+              Determine whether it can generate a genuine hereditary
+              gravitational kernel.
+
+              If a kernel is derived, determine:
+
+              - causality
+              - covariance
+              - conservation
+              - analyticity
+              - spectral positivity
+              - memory timescale
+              - weak-field limit
+              - Newtonian limit
+              - linear perturbations
+              - propagating degrees of freedom
+              - ghost stability
+              - tachyon stability
+              - gradient stability
+              - hyperbolicity
+              - local gravitational constraints
+
+              If an effective action is proposed:
+
+              1. write the action
+              2. vary it explicitly
+              3. derive the field equations
+              4. check the Bianchi identity
+              5. check matter conservation
+              6. linearize around the appropriate background
+
+              Never introduce an arbitrary scalar and simply call it
+              memory.
 
               If an auxiliary field is introduced, prove why its
-              dynamics represent genuine history dependence.
+              dynamics encode genuine history dependence.
 
-              Separate:
+              Clearly label:
 
               EXACT RESULT
               DERIVED RESULT
@@ -674,4 +1304,107 @@ jobs:
               CONJECTURE
               OPEN PROBLEM
 
-              Show equations and
+              Show equations, intermediate steps and final results.
+              """
+
+
+              derivation = call_model(
+                  derivation_prompt
+              )
+
+
+              # ========================================================
+              # CRITICAL AUDIT
+              # ========================================================
+
+              audit_prompt = f"""
+              You are the CRITICAL VERIFICATION agent of GSMH.
+
+              {GSMH_IDENTITY}
+
+              FOUNDATION:
+              {foundation[-12000:]}
+
+              DERIVATION:
+              {derivation[-24000:]}
+
+              Audit the derivation mathematically.
+
+              Check:
+
+              1. algebra
+              2. dimensions
+              3. signs
+              4. variational steps
+              5. conservation
+              6. diffeomorphism covariance
+              7. causal structure
+              8. spectral representation
+              9. stability
+              10. degrees of freedom
+              11. weak-field limit
+              12. Newtonian limit
+              13. distinction between memory and ordinary retardation
+              14. distinction between memory and curved-spacetime tails
+              15. hidden assumptions
+              16. unsupported claims
+
+              Identify fatal problems explicitly.
+
+              If something is wrong, give the corrected equation.
+
+              Do not protect the hypothesis from falsification.
+
+              Do not invent evidence.
+              """
+
+
+              audit = call_model(
+                - causality
+              - covariance
+              - conservation
+              - analyticity
+              - spectral positivity
+              - memory timescale
+              - weak-field limit
+              - Newtonian limit
+              - linear perturbations
+              - propagating degrees of freedom
+              - ghost stability
+              - tachyon stability
+              - gradient stability
+              - hyperbolicity
+              - local gravitational constraints
+
+              If an effective action is proposed:
+
+              1. write the action
+              2. vary it explicitly
+              3. derive the field equations
+              4. check the Bianchi identity
+              5. check matter conservation
+              6. linearize around the appropriate background
+
+              Never introduce an arbitrary scalar and simply call it
+              memory.
+
+              If an auxiliary field is introduced, prove why its
+              dynamics encode genuine history dependence.
+
+              Clearly label:
+
+              EXACT RESULT
+              DERIVED RESULT
+              APPROXIMATION
+              NUMERICAL RESULT
+              CONJECTURE
+              OPEN PROBLEM
+
+              Show equations, intermediate steps and final results.
+              """
+
+
+              derivation = call_model(
+                  derivation_prompt
+              )
+
