@@ -1,20 +1,732 @@
-AUDITOR agent for GSMH.
-Rigorously attack a provided derivation.
-Find contradictions, missing constraints, conservation failures, instabilities (ghosts/tachyons/gradients), acausality, bad GR limits, Solar-System conflicts, and differentiate between genuine hereditary memory vs. ordinary retarded/tail effects.
-The "DERIVATION" provided is actually a *meta-derivation* or a *plan* to create a theory (GSMH), rather than a fully fleshed-out mathematical derivation of a specific result. The agent who wrote the "derivation" proposed a framework (Scalar-Tensor-Gauss-Bonnet - STGB) and outlined the steps they *would* take.
+name: GSMH Autonomous Research
 
-    *   The "Derivation" is essentially a proposal to build a theory. It doesn't provide the actual field equations, the actual stability analysis, or the actual limit derivations. It says "I will vary $S$ w.r.t. $g^{\mu\nu} \rightarrow$ Modified Einstein Equations" without actually *showing* the equations.
-    *   The "Holographic" claim is hand-waved. The proposer suggests that using a Gauss-Bonnet term $\mathcal{G}$ makes it "holographic" because it's a "leading order holographic correction."
-    *   The specific form of the coupling $\xi(\phi)$ or $f(\phi)$ is mentioned vaguely (Brans-Dicke style or $\xi(\phi)\mathcal{G}$).
+on:
+  workflow_dispatch:
 
-    *   *Critique 1: Vacuum/Triviality.* The Gauss-Bonnet term $\mathcal{G}$ is a total derivative in 4D. Unless $\xi(\phi)$ is non-constant, the term $\int \sqrt{-g} \xi(\phi) \mathcal{G}$ does nothing to the field equations if $\xi$ is constant. If $\xi(\phi)$ is dynamic, it introduces higher-order derivatives.
-    *   *Critique 2: Stability (Ghosts/Tachyons).* STGB theories are notorious for "ghosts" or "gradient instabilities" depending on the choice of $\xi(\phi)$ and the background evolution. The proposer *says* they will check for ghosts, but hasn't actually done it.
-    *   *Critique 3: The "Holographic" Label.* Calling a STGB theory "Holographic" is a semantic stretch. Holography usually refers to the AdS/CFT correspondence or the holographic principle (entropy $\propto$ area). Simply adding a curvature invariant does not make a theory "holographic" in the formal sense.
-    *   *Critique 4: Solar System Constraints.* Any scalar-tensor theory must pass the Cassini tracking experiment (PPN parameters). The proposer ignores the $\omega$ (Brans-Dicke parameter) or the $\gamma_{PPN}$ constraint.
-    *   *Critique 5: Memory Effect (The specific request).* The user asked about "hereditary memory." The derivation doesn't even mention memory effects. If the proposer *were* to claim a memory effect from the scalar field, it would likely be a "tail effect" (scattering of waves off the background curvature) rather than a permanent displacement of the metric (genuine memory), unless there's a specific non-linear coupling or topological charge.
+permissions:
+  contents: write
 
-    *   Set the tone: Rigorous, skeptical, formal.
-    *   Address the "Meta" nature of the derivation: Point out that it is a *recipe*, not a *result*.
-    *   Attack the specific physics of STGB.
-    *   Highlight the lack of evidence for "Holographic" properties.
-    *   Demand the actual math for the limits and stability.
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade requests
+
+      - name: Run GSMH autonomous research
+        run: |
+          mkdir -p agents/reports
+          mkdir -p agents
+
+          python <<'PY'
+          import os
+          import json
+          import re
+          import time
+          import subprocess
+          from pathlib import Path
+
+          import requests
+
+
+          API_KEY = os.environ.get("GEMINI_API_KEY")
+
+          if not API_KEY:
+              raise RuntimeError("GEMINI_API_KEY is missing")
+
+          MODEL = "gemma-4-31b-it"
+
+          API_URL = (
+              "https://generativelanguage.googleapis.com/"
+              "v1beta/models/"
+              + MODEL
+              + ":generateContent?key="
+              + API_KEY
+          )
+
+          MAX_CYCLES = 20
+          REQUEST_TIMEOUT = 300
+          MAX_OUTPUT_TOKENS = 12000
+
+          ROOT = Path(".")
+          REPORTS = ROOT / "agents" / "reports"
+          STATE_FILE = ROOT / "agents" / "state.json"
+
+          REPORTS.mkdir(parents=True, exist_ok=True)
+
+
+          GSMH_IDENTITY = r"""
+          ============================================================
+          GSMH MODEL IDENTITY LOCK
+          ============================================================
+
+          MODEL IDENTITY:
+          GSMH-HEREDITARY-GRAVITY
+
+          Full name:
+          Gravity Spacetime Memory Hypothesis
+
+          GSMH is a speculative gravitational hypothesis.
+
+          Core statement:
+
+          The gravitational response at an event may depend not only
+          on the present matter-energy configuration, but also on a
+          mathematically defined functional of prior spacetime
+          curvature and/or prior matter distribution.
+
+          The central proposed physical idea is HEREDITARY GRAVITATIONAL
+          RESPONSE: a previous matter configuration may leave a residual
+          gravitational influence after the source changes, moves,
+          disperses, explodes, or otherwise evolves.
+
+          The existence, mathematical form, consistency, magnitude and
+          observability of this memory are NOT assumed to be proven.
+
+          A schematic target equation is:
+
+              E_munu[g](x)
+              =
+              8*pi*G*T_munu(x)
+              +
+              M_munu[g,T_history](x)
+
+          where M_munu represents a causal functional of previous
+          gravitational/matter history.
+
+          THIS EQUATION IS ONLY A TARGET REPRESENTATION.
+          It must be derived, modified, or rejected.
+
+          The research must determine:
+
+          1. What mathematical object carries the memory?
+          2. How is memory generated?
+          3. What is its causal kernel?
+          4. What determines its persistence time?
+          5. Does the memory depend on curvature history?
+          6. Does it depend on matter history?
+          7. Can the mechanism be derived from a microscopic theory?
+          8. Is the theory diffeomorphism covariant?
+          9. Are the gravitational constraints consistent?
+          10. Is stress-energy conservation consistent?
+          11. What propagating degrees of freedom exist?
+          12. Are there ghosts?
+          13. Are there tachyonic instabilities?
+          14. Are there gradient instabilities?
+          15. Is propagation causal and hyperbolic?
+          16. Does GR emerge in the appropriate limit?
+          17. What is the Newtonian/weak-field limit?
+          18. What is the persistence law?
+          19. Can the mechanism affect galaxy rotation curves?
+          20. Can it reproduce the baryonic Tully-Fisher relation?
+          21. Can it produce gravitational lensing?
+          22. Can it address cluster systems such as the Bullet Cluster?
+          23. Does it survive Solar-System constraints?
+          24. Does it survive binary-pulsar constraints?
+          25. Does it survive gravitational-wave constraints?
+          26. Does it survive cosmological constraints?
+
+          GSMH IS A HYPOTHESIS, NOT A PROVEN THEORY.
+          ============================================================
+          """
+
+
+          FORBIDDEN_REDEFINITIONS = [
+              "generalized scalar-metric-holographic",
+              "generalized scalar metric holographic",
+              "scalar-metric-holographic",
+          ]
+
+
+          def read_text(path):
+              try:
+                  return path.read_text(encoding="utf-8")
+              except Exception:
+                  return ""
+
+
+          canonical_model = read_text(
+              ROOT / "memory" / "CANONICAL_MODEL.md"
+          )
+
+          open_problems = read_text(
+              ROOT / "memory" / "OPEN_PROBLEMS.md"
+          )
+
+
+          def call_model(prompt):
+              payload = {
+                  "contents": [
+                      {
+                          "parts": [
+                              {
+                                  "text": prompt
+                              }
+                          ]
+                      }
+                  ],
+                  "generationConfig": {
+                      "temperature": 0.15,
+                      "topP": 0.90,
+                      "maxOutputTokens": MAX_OUTPUT_TOKENS
+                  }
+              }
+
+              last_error = None
+
+              for attempt in range(5):
+
+                  try:
+                      response = requests.post(
+                          API_URL,
+                          json=payload,
+                          timeout=REQUEST_TIMEOUT
+                      )
+
+                      if response.status_code == 200:
+                          data = response.json()
+
+                          candidates = data.get("candidates", [])
+
+                          if not candidates:
+                              raise RuntimeError(
+                                  "API returned no candidates"
+                              )
+
+                          content = candidates[0].get("content", {})
+                          parts = content.get("parts", [])
+
+                          text_parts = []
+
+                          for part in parts:
+                              if isinstance(part, dict):
+                                  text = part.get("text")
+                                  if text:
+                                      text_parts.append(text)
+
+                          result = "\n".join(text_parts).strip()
+
+                          if result:
+                              return result
+
+                          raise RuntimeError(
+                              "API returned empty text"
+                          )
+
+                      if response.status_code in (429, 500, 502, 503, 504):
+                          last_error = (
+                              f"HTTP {response.status_code}: "
+                              f"{response.text[:1000]}"
+                          )
+                          time.sleep(10 * (attempt + 1))
+                          continue
+
+                      raise RuntimeError(
+                          f"Gemini API HTTP {response.status_code}: "
+                          f"{response.text[:2000]}"
+                      )
+
+                  except requests.RequestException as exc:
+                      last_error = str(exc)
+                      time.sleep(10 * (attempt + 1))
+
+              raise RuntimeError(
+                  f"Gemini request failed after retries: {last_error}"
+              )
+
+
+          def save(path, text):
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(
+                  text,
+                  encoding="utf-8"
+              )
+
+
+          def extract_status(text):
+              matches = re.findall(
+                  r"^\s*FINAL STATUS:\s*"
+                  r"(PROVEN|DERIVED-BUT-UNVERIFIED|"
+                  r"VIABLE-CANDIDATE|FAILED|OPEN)\s*$",
+                  text,
+                  flags=re.MULTILINE
+              )
+
+              if not matches:
+                  return "OPEN"
+
+              return matches[-1]
+
+
+          def detect_drift(text):
+              lowered = text.lower()
+
+              for forbidden in FORBIDDEN_REDEFINITIONS:
+                  if forbidden in lowered:
+                      return True
+
+              required_identity = (
+                  "MODEL IDENTITY: GSMH-HEREDITARY-GRAVITY"
+              )
+
+              if required_identity not in text:
+                  return True
+
+              return False
+
+
+          previous_synthesis = ""
+          previous_audit = ""
+          previous_repair = ""
+
+          if STATE_FILE.exists():
+              try:
+                  previous_state = json.loads(
+                      STATE_FILE.read_text(
+                          encoding="utf-8"
+                      )
+                  )
+
+                  previous_synthesis = previous_state.get(
+                      "previous_synthesis",
+                      ""
+                  )
+
+                  previous_audit = previous_state.get(
+                      "previous_audit",
+                      ""
+                  )
+
+                  previous_repair = previous_state.get(
+                      "previous_repair",
+                      ""
+                  )
+
+              except Exception:
+                  pass
+
+
+          for cycle in range(1, MAX_CYCLES + 1):
+
+              print("")
+              print("=" * 70)
+              print(f"GSMH RESEARCH CYCLE {cycle}")
+              print("=" * 70)
+              print("")
+
+
+              foundation_prompt = f"""
+              You are the FOUNDATION agent.
+
+              {GSMH_IDENTITY}
+
+              Existing canonical model:
+              {canonical_model[-12000:]}
+
+              Existing open problems:
+              {open_problems[-12000:]}
+
+              Previous synthesis:
+              {previous_synthesis[-16000:]}
+
+              Previous audit:
+              {previous_audit[-12000:]}
+
+              Previous repair:
+              {previous_repair[-12000:]}
+
+              Your task:
+
+              Determine ONE precise mathematical problem that this cycle
+              must solve.
+
+              Do not invent a new theory.
+
+              Do not redefine GSMH.
+
+              Explicitly distinguish:
+
+              A. genuine hereditary memory
+              B. ordinary retarded response
+              C. curved-spacetime tail effects
+              D. gravitational-wave memory
+              E. unrelated modified gravity
+
+              Forbidden as GSMH identity:
+
+              - holographic gravity
+              - Scalar-Gauss-Bonnet
+              - generic scalar-tensor gravity
+              - MOND
+              - dark matter substitution
+              - unrelated modified gravity
+
+              Output:
+
+              IDENTITY CHECK
+
+              CURRENT GAP
+
+              SINGLE MATHEMATICAL TARGET
+
+              REQUIRED DERIVATION
+
+              REQUIRED FALSIFICATION TEST
+
+              ACCEPTANCE CRITERIA
+              """
+
+
+              foundation = call_model(
+                  foundation_prompt
+              )
+
+
+              derivation_prompt = f"""
+              You are the DERIVATION agent.
+
+              {GSMH_IDENTITY}
+
+              FOUNDATION REPORT:
+              {foundation[-18000:]}
+
+              PREVIOUS SYNTHESIS:
+              {previous_synthesis[-18000:]}
+
+              Perform ACTUAL mathematics.
+
+              Do not merely describe what should be done.
+
+              Priority:
+
+              1. Derive the origin of the memory response.
+              2. Investigate the microscopic CTP/2PI route if relevant.
+              3. Investigate a microscopic field q with O=q^2.
+              4. Analyze the susceptibility
+
+                 Pi(k) =
+                 integral d^3q/(2*pi)^3
+                 [
+                   1 /
+                   ((q^2+m^2)((q+k)^2+m^2))
+                 ]
+
+              5. Determine whether such a response can generate a genuine
+                 hereditary gravitational kernel.
+              6. Derive a covariant effective equation if justified.
+              7. Vary any proposed action explicitly.
+              8. Check conservation.
+              9. Check diffeomorphism covariance.
+              10. Derive the weak-field/Newtonian limit.
+              11. Linearize the theory.
+              12. Determine propagating degrees of freedom.
+              13. Compute kinetic and gradient stability conditions.
+              14. Determine causality/hyperbolicity.
+              15. Derive the memory timescale if possible.
+              16. Determine whether the effect can survive local tests.
+
+              Never introduce an arbitrary scalar and call it memory.
+
+              If an auxiliary field is introduced, prove why its dynamics
+              represent genuine history dependence.
+
+              Separate:
+
+              EXACT RESULT
+              DERIVED RESULT
+              APPROXIMATION
+              NUMERICAL RESULT
+              CONJECTURE
+              OPEN PROBLEM
+
+              Show equations and intermediate steps.
+              """
+
+
+              derivation = call_model(
+                  derivation_prompt
+              )
+
+
+              audit_prompt = f"""
+              You are the FALSIFIER agent.
+
+              {GSMH_IDENTITY}
+
+              FOUNDATION:
+              {foundation[-16000:]}
+
+              DERIVATION:
+              {derivation[-30000:]}
+
+              Try to destroy the proposed construction.
+
+              Test:
+
+              1. covariance
+              2. Bianchi identity
+              3. conservation
+              4. ghosts
+              5. tachyons
+              6. gradient instability
+              7. kinetic signs
+              8. extra degrees of freedom
+              9. causality
+              10. hyperbolicity
+              11. GR limit
+              12. Newtonian limit
+              13. Solar-System constraints
+              14. binary-pulsar constraints
+              15. gravitational-wave constraints
+              16. cosmology
+              17. lensing
+              18. galaxy rotation
+              19. Bullet-Cluster-type systems
+              20. whether the proposed memory is merely ordinary
+                  retarded propagation.
+
+              For every failure give:
+
+              FAILURE
+
+              EQUATION OR ARGUMENT
+
+              WHY IT FAILS
+
+              SEVERITY
+
+              POSSIBLE REPAIR
+
+              Do not replace GSMH with another theory.
+              """
+
+
+              audit = call_model(
+                  audit_prompt
+              )
+
+
+              repair_prompt = f"""
+              You are the REPAIR agent.
+
+              {GSMH_IDENTITY}
+
+              FOUNDATION:
+              {foundation[-14000:]}
+
+              DERIVATION:
+              {derivation[-26000:]}
+
+              FALSIFIER:
+              {audit[-28000:]}
+
+              Repair only mathematically justified failures.
+
+              Rules:
+
+              - Preserve GSMH identity.
+              - Do not hide failures.
+              - Do not add arbitrary fitting parameters.
+              - Do not replace GSMH with another theory.
+              - Re-derive equations after every repair.
+              - If repair is impossible, explicitly say so.
+
+              Output:
+
+              ORIGINAL PROBLEM
+
+              REPAIR
+
+              MATHEMATICAL JUSTIFICATION
+
+              NEW EQUATIONS
+
+              NEW STABILITY CONDITIONS
+
+              NEW LIMITS
+
+              REMAINING FAILURE
+              """
+
+
+              repair = call_model(
+                  repair_prompt
+              )
+
+
+              synthesis_prompt = f"""
+              You are the SENIOR SYNTHESIS agent.
+
+              {GSMH_IDENTITY}
+
+              FOUNDATION:
+              {foundation[-14000:]}
+
+              DERIVATION:
+              {derivation[-28000:]}
+
+              FALSIFIER:
+              {audit[-26000:]}
+
+              REPAIR:
+              {repair[-26000:]}
+
+              PREVIOUS SYNTHESIS:
+              {previous_synthesis[-14000:]}
+
+              Evidence hierarchy:
+
+              LEVEL 1 = definition
+              LEVEL 2 = derived equation
+              LEVEL 3 = analytic proof
+              LEVEL 4 = numerical calculation
+              LEVEL 5 = observational comparison
+              LEVEL 6 = speculation
+
+              Never promote speculation to derivation.
+
+              Never promote a proposed equation to a proven equation.
+
+              Never call ordinary retarded propagation genuine GSMH memory
+              without proving the distinction.
+
+              Never call a curved-spacetime tail automatically GSMH.
+
+              Never redefine GSMH.
+
+              Never substitute:
+
+              - holographic gravity
+              - Scalar-Gauss-Bonnet
+              - generic scalar-tensor gravity
+              - MOND
+              - dark matter
+              - another unrelated modified-gravity theory
+
+              Such theories may only appear as comparison or falsification
+              cases.
+
+              Required final structure:
+
+              MODEL IDENTITY: GSMH-HEREDITARY-GRAVITY
+
+              CORE RESULT:
+              ...
+
+              DERIVED EQUATIONS:
+              ...
+
+              CONSERVATION/COVARIANCE RESULT:
+              ...
+
+              STABILITY RESULT:
+              ...
+
+              NEWTONIAN/WEAK-FIELD RESULT:
+              ...
+
+              MEMORY RESULT:
+              ...
+
+              OBSERVATIONAL RESULT:
+              ...
+
+              MAIN FAILURE OR OPEN PROBLEM:
+              ...
+
+              NEXT MATHEMATICAL TARGET:
+              ...
+
+              FINAL STATUS: X
+
+              X must be exactly one of:
+
+              PROVEN
+              DERIVED-BUT-UNVERIFIED
+              VIABLE-CANDIDATE
+              FAILED
+              OPEN
+
+              PROVEN is allowed only when the complete mathematical
+              consistency chain has genuinely been established.
+
+              FAILED is allowed only when a rigorous contradiction
+              destroys the GSMH mechanism.
+
+              Otherwise use the strongest honestly justified status.
+              """
+
+
+              synthesis = call_model(
+                  synthesis_prompt
+              )
+
+
+              drift_text = "\n".join(
+                  [
+                      foundation,
+                      derivation,
+                      audit,
+                      repair,
+                      synthesis
+                  ]
+              )
+
+              drift = detect_drift(
+                  drift_text
+              )
+
+              status = extract_status(
+                  synthesis
+              )
+
+              accepted_status = status
+
+              if drift:
+                  accepted_status = "OPEN"
+                  print(
+                      "MODEL IDENTITY DRIFT DETECTED"
+                  )
+
+              prefix = f"cycle_{cycle:03d}"
+
+              save(
+                  REPORTS / f"{prefix}_foundation.md",
+                  foundation
+              )
+
+              save(
+                  REPORTS / f"{prefix}_derivation.md",
+                  derivation
+              )
+
+              save(
+                  REPORTS / f"{prefix}_audit.md",
+                  audit
+              )
+
+              save(
+                  REPORTS / f"{prefix}_repair.md",
+                  repair
+              )
+
+              save(
+                  REPORTS / f"{prefix}_synthesis.md",
+                  synthesis
+              )
+
+
+              state = 
