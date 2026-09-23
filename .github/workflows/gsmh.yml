@@ -729,4 +729,46 @@ jobs:
               )
 
 
-              state = 
+              state = {
+    "cycle": cycle,
+    "status": accepted_status,
+    "identity_drift": drift,
+    "previous_synthesis": synthesis[-16000:],
+    "previous_audit": audit[-12000:],
+    "previous_repair": repair[-12000:]
+}
+
+STATE_FILE.write_text(
+    json.dumps(state, indent=2),
+    encoding="utf-8"
+)
+
+previous_synthesis = synthesis
+previous_audit = audit
+previous_repair = repair
+
+print(f"CYCLE {cycle} COMPLETE | STATUS: {accepted_status}")
+
+if accepted_status == "PROVEN":
+    print("GSMH reached PROVEN status.")
+    break
+
+canonical_model = read_text(
+    ROOT / "memory" / "CANONICAL_MODEL.md"
+)
+
+open_problems = read_text(
+    ROOT / "memory" / "OPEN_PROBLEMS.md"
+)
+
+time.sleep(2)
+
+PY
+
+      - name: Save research
+        run: |
+          git config user.name "GSMH Research Agent"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agents/reports agents/state.json
+          git diff --cached --quiet || git commit -m "GSMH autonomous research cycles"
+          git push
